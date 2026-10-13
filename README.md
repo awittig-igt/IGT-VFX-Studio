@@ -12,9 +12,11 @@ https://github.com/awittig-igt/viewfx-unity.git
 
 ## Install locally
 
-In Unity's Package Manager, choose **Install package from disk** (or **Add package from disk** on older editors) and select this folder's `package.json`. ViewFX opens on first installation. Reopen it through **Window > ViewFX**.
+In Unity's Package Manager, choose **Install package from disk** (or **Add package from disk** on older editors) and select this folder's `package.json`. VFXStudio opens on first installation. Reopen it through **Window > VFXStudio**.
 
 ## Connect
+
+The companion opens to a main menu with **ViewFX** and **FindFX** cards. Choose **Open ViewFX** to manage your connection and downloads, or **Open FindFX** to visit the upcoming project discovery tools. Use **Main Menu** in either tool to return to the cards.
 
 Start the ViewFX API and website. Set **ViewFX site** to `http://localhost:5173` for local development, or the deployed HTTPS origin. Click **Connect to ViewFX**, sign in on the website, and choose **Allow** or **Deny**. Requests expire after ten minutes. **Cancel** invalidates a pending request. **Disconnect** revokes the connection on the server before clearing the local credential; when offline, retry disconnect once the server is reachable.
 

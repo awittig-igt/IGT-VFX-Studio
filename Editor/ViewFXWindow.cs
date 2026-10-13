@@ -26,8 +26,10 @@ namespace ViewFX.Editor
         private State state = new State();
         private Texture2D logo;
         private Texture2D findFXLogo;
-        [SerializeField] private int selectedTab;
-        private static readonly string[] TabNames = { "ViewFX", "FindFX" };
+        private Texture2D cardGradient;
+        private enum Menu { Main, ViewFX, FindFX }
+        [SerializeField] private Menu selectedMenu = Menu.Main;
+        private Vector2 scrollPosition;
         private UnityWebRequest activeRequest;
         private Action<Reply> onReply;
         private double nextPoll;
@@ -56,11 +58,12 @@ namespace ViewFX.Editor
             };
         }
 
-        [MenuItem("Window/ViewFX")]
-        public static void Open() => GetWindow<ViewFXWindow>("ViewFX");
+        [MenuItem("Window/VFXStudio")]
+        public static void Open() => GetWindow<ViewFXWindow>("VFXStudio");
 
         private void OnEnable()
         {
+            titleContent = new GUIContent("VFXStudio");
             minSize = new Vector2(340, 270);
             string scriptPath = AssetDatabase.GetAssetPath(MonoScript.FromScriptableObject(this));
             logo = AssetDatabase.LoadAssetAtPath<Texture2D>(
@@ -81,6 +84,8 @@ namespace ViewFX.Editor
         private void OnDisable()
         {
             EditorApplication.update -= Tick;
+            if (cardGradient != null) DestroyImmediate(cardGradient);
+            cardGradient = null;
             activeRequest?.Abort();
             activeRequest?.Dispose();
             activeRequest = null;
@@ -90,18 +95,120 @@ namespace ViewFX.Editor
 
         private void OnGUI()
         {
-            selectedTab = GUILayout.Toolbar(selectedTab, TabNames);
+            using (var scroll = new EditorGUILayout.ScrollViewScope(scrollPosition))
+            {
+                scrollPosition = scroll.scrollPosition;
+                if (selectedMenu == Menu.Main)
+                {
+                    DrawMainMenu();
+                    return;
+                }
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Main Menu", GUILayout.Width(150), GUILayout.Height(36)))
+                    {
+                        selectedMenu = Menu.Main;
+                        scrollPosition = Vector2.zero;
+                    }
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label(selectedMenu == Menu.ViewFX ? "ViewFX" : "FindFX", EditorStyles.boldLabel);
+                }
+                EditorGUILayout.Space(12);
+                DrawLogo(selectedMenu == Menu.ViewFX ? logo : findFXLogo);
+                if (selectedMenu == Menu.ViewFX) DrawCompanion();
+                else if (selectedMenu == Menu.FindFX)
+                {
+                    EditorGUILayout.LabelField("FindFX", EditorStyles.boldLabel);
+                    EditorGUILayout.HelpBox("FindFX tools are coming soon. FindFX will help you find effects in your Unity project.", MessageType.Info);
+                }
+            }
+        }
+
+        private void DrawMainMenu()
+        {
             EditorGUILayout.Space(12);
-            DrawLogo(selectedTab == 0 ? logo : findFXLogo);
-            if (selectedTab == 0) DrawCompanion();
+            EditorGUILayout.LabelField("VFXStudio", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Choose a tool to get started.", EditorStyles.wordWrappedLabel);
+            EditorGUILayout.Space(12);
+
+            if (position.width >= 580)
+            {
+                using (new EditorGUILayout.HorizontalScope()) DrawToolCards();
+            }
+            else DrawToolCards();
+        }
+
+        private void DrawToolCards()
+        {
+            DrawToolCard(Menu.ViewFX, logo, "ViewFX",
+                "Connect your ViewFX account and download effects directly into your Unity project.");
+            DrawToolCard(Menu.FindFX, findFXLogo, "FindFX",
+                "Automatically find effects in your project, package them, and upload them to ViewFX.");
+        }
+
+        private void DrawToolCard(Menu menu, Texture2D texture, string title, string description)
+        {
+            Color toolColor = menu == Menu.ViewFX
+                ? new Color(0.44f, 0.34f, 0.72f)
+                : new Color(0.72f, 0.23f, 0.29f);
+            Color buttonColor = menu == Menu.ViewFX
+                ? new Color(0.82f, 0.72f, 1f)
+                : new Color(1f, 0.68f, 0.72f);
+            using (var card = new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.ExpandWidth(true)))
+            {
+                if (Event.current.type == EventType.Repaint)
+                    DrawCardGradient(card.rect, toolColor);
+                EditorGUILayout.Space(8);
+                DrawLogo(texture);
+                EditorGUILayout.LabelField(title, EditorStyles.boldLabel);
+                EditorGUILayout.LabelField(description, EditorStyles.wordWrappedLabel, GUILayout.MinHeight(54));
+                EditorGUILayout.Space(8);
+                if (TintedButton("Open " + title, buttonColor, GUILayout.Height(28)))
+                {
+                    selectedMenu = menu;
+                    scrollPosition = Vector2.zero;
+                }
+                EditorGUILayout.Space(4);
+            }
+        }
+
+        private void DrawCardGradient(Rect area, Color tint)
+        {
+            if (cardGradient == null)
+            {
+                const int height = 64;
+                cardGradient = new Texture2D(1, height, TextureFormat.RGBA32, false)
+                {
+                    name = "ViewFX Card Gradient",
+                    hideFlags = HideFlags.HideAndDontSave,
+                    wrapMode = TextureWrapMode.Clamp,
+                    filterMode = FilterMode.Bilinear
+                };
+                var pixels = new Color[height];
+                for (int y = 0; y < height; y++)
+                    pixels[y] = new Color(1, 1, 1, 0.18f * y / (height - 1));
+                cardGradient.SetPixels(pixels);
+                cardGradient.Apply(false, true);
+            }
+
+            // Fade the logo color into the native card background in either editor theme.
+            area = new Rect(area.x + 2, area.y + 2, area.width - 4, area.height - 4);
+            Color previousColor = GUI.color;
+            try
+            {
+                GUI.color = tint;
+                GUI.DrawTexture(area, cardGradient, ScaleMode.StretchToFill, true);
+            }
+            finally { GUI.color = previousColor; }
         }
 
         private static void DrawLogo(Texture2D texture)
         {
             if (texture != null)
             {
-                Rect logoArea = GUILayoutUtility.GetRect(0, 64, GUILayout.ExpandWidth(true));
-                float logoWidth = Mathf.Min(256, logoArea.width);
+                Rect logoArea = GUILayoutUtility.GetRect(0, 80, GUILayout.ExpandWidth(true));
+                float logoWidth = Mathf.Min(320, logoArea.width);
                 Rect logoRect = new Rect(logoArea.center.x - logoWidth / 2, logoArea.y, logoWidth, logoArea.height);
                 Color previousColor = GUI.color;
                 try
@@ -150,8 +257,23 @@ namespace ViewFX.Editor
 #endif
                 using (new EditorGUI.DisabledScope(activeRequest != null))
                 {
-                    if (TintedButton("Disconnect", new Color(1f, 0.78f, 0.78f))) Disconnect();
-                    if (GUILayout.Button("Check Connection")) Verify();
+                    float buttonHeight = GUI.skin.button.CalcSize(new GUIContent("Disconnect")).y * 2;
+                    Rect buttonRow = GUILayoutUtility.GetRect(0, buttonHeight, GUILayout.ExpandWidth(true));
+                    const float gap = 4;
+                    float buttonWidth = (buttonRow.width - gap) / 2;
+                    Rect disconnectRect = new Rect(buttonRow.x, buttonRow.y, buttonWidth, buttonHeight);
+                    Rect checkRect = new Rect(disconnectRect.xMax + gap, buttonRow.y, buttonWidth, buttonHeight);
+                    Color previousColor = GUI.backgroundColor;
+                    bool disconnectClicked;
+                    try
+                    {
+                        GUI.backgroundColor = previousColor * new Color(1f, 0.78f, 0.78f);
+                        disconnectClicked = GUI.Button(disconnectRect, "Disconnect");
+                    }
+                    finally { GUI.backgroundColor = previousColor; }
+                    bool checkClicked = GUI.Button(checkRect, "Check Connection");
+                    if (disconnectClicked) Disconnect();
+                    else if (checkClicked) Verify();
                 }
                 DrawMessages();
             }
@@ -204,13 +326,13 @@ namespace ViewFX.Editor
             }
         }
 
-        private static bool TintedButton(string label, Color tint)
+        private static bool TintedButton(string label, Color tint, params GUILayoutOption[] options)
         {
             Color previousColor = GUI.backgroundColor;
             try
             {
                 GUI.backgroundColor = previousColor * tint;
-                return GUILayout.Button(label);
+                return GUILayout.Button(label, options);
             }
             finally
             {
