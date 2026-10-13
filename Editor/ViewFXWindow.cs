@@ -25,6 +25,9 @@ namespace ViewFX.Editor
 
         private State state = new State();
         private Texture2D logo;
+        private Texture2D findFXLogo;
+        [SerializeField] private int selectedTab;
+        private static readonly string[] TabNames = { "ViewFX", "FindFX" };
         private UnityWebRequest activeRequest;
         private Action<Reply> onReply;
         private double nextPoll;
@@ -62,6 +65,8 @@ namespace ViewFX.Editor
             string scriptPath = AssetDatabase.GetAssetPath(MonoScript.FromScriptableObject(this));
             logo = AssetDatabase.LoadAssetAtPath<Texture2D>(
                 Path.GetDirectoryName(scriptPath).Replace('\\', '/') + "/ViewFXLogo.png");
+            findFXLogo = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                Path.GetDirectoryName(scriptPath).Replace('\\', '/') + "/FindFXLogo.png");
             try
             {
                 string saved = CredentialStore.Load();
@@ -85,8 +90,15 @@ namespace ViewFX.Editor
 
         private void OnGUI()
         {
+            selectedTab = GUILayout.Toolbar(selectedTab, TabNames);
             EditorGUILayout.Space(12);
-            if (logo != null)
+            DrawLogo(selectedTab == 0 ? logo : findFXLogo);
+            if (selectedTab == 0) DrawCompanion();
+        }
+
+        private static void DrawLogo(Texture2D texture)
+        {
+            if (texture != null)
             {
                 Rect logoArea = GUILayoutUtility.GetRect(0, 64, GUILayout.ExpandWidth(true));
                 float logoWidth = Mathf.Min(256, logoArea.width);
@@ -95,7 +107,7 @@ namespace ViewFX.Editor
                 try
                 {
                     GUI.color = Color.white;
-                    GUI.DrawTexture(logoRect, logo, ScaleMode.ScaleToFit, true);
+                    GUI.DrawTexture(logoRect, texture, ScaleMode.ScaleToFit, true);
                 }
                 finally
                 {
@@ -103,7 +115,6 @@ namespace ViewFX.Editor
                 }
                 EditorGUILayout.Space(8);
             }
-            DrawCompanion();
         }
 
         private void DrawCompanion()
