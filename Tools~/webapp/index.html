@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Effects Extractor Library</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Shown automatically when the page is opened as file:// -->
+  <div id="file-protocol-banner" class="file-banner hidden">
+    <strong>⚠ Local file detected.</strong>
+    GitHub API calls are blocked by CORS when the page is opened as <code>file://</code>.
+    To use <strong>Add Project → Push</strong>, serve the webapp via a local HTTP server:
+    VS Code → install <strong>Live Server</strong> extension → right-click <code>index.html</code> → <em>Open with Live Server</em>.
+    <button class="file-banner-close" onclick="this.parentElement.classList.add('hidden')" aria-label="Dismiss">×</button>
+  </div>
+  <script>if(location.protocol==='file:')document.getElementById('file-protocol-banner').classList.remove('hidden');</script>
+
+  <!-- Local preview banner (shown when effects are from sessionStorage, not GitHub) -->
+  <div id="local-preview-banner" class="local-banner hidden">
+    <span>⚡ <strong>Local preview</strong> — these effects are stored in this browser tab only.</span>
+    <span>To save permanently: unzip the downloaded file into your repo, then <code>git add . &amp;&amp; git push</code>.</span>
+    <button class="local-banner-clear" onclick="clearLocalManifest();location.reload()" title="Clear local preview">Clear ×</button>
+  </div>
+
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon" aria-hidden="true">✦</span>
+        <span class="logo-text">Effects Extractor Library</span>
+      </div>
+      <div class="header-controls">
+        <input type="search" id="search" placeholder="Search effects, tags, games…" autocomplete="off" spellcheck="false">
+        <button id="btn-add-project" class="btn-add-project" title="Add a Unity project" aria-label="Add Unity project">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Project
+        </button>
+        <button id="btn-upload-package" class="btn-upload-pkg" title="Upload a .unitypackage" aria-label="Upload Unity package">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload Package
+        </button>
+        <button id="btn-settings" class="btn-icon" title="Settings" aria-label="Open Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <nav class="type-filter" aria-label="Filter by type">
+      <button class="filter-btn active" data-type="all">All</button>
+      <button class="filter-btn" data-type="particle">
+        <span class="type-dot dot-particle"></span>Particles
+      </button>
+      <button class="filter-btn" data-type="shader">
+        <span class="type-dot dot-shader"></span>Shaders
+      </button>
+      <button class="filter-btn" data-type="vfx">
+        <span class="type-dot dot-vfx"></span>VFX
+      </button>
+      <button class="filter-btn" data-type="material">
+        <span class="type-dot dot-material"></span>Materials
+      </button>
+    </nav>
+    <div class="toolbar-right">
+      <select id="source-filter" aria-label="Filter by import source">
+        <option value="all">All Sources</option>
+        <option value="manual-upload">Uploaded Manually</option>
+        <option value="project-scan">Project Scans</option>
+      </select>
+      <select id="game-filter" aria-label="Filter by game">
+        <option value="all">All Games</option>
+      </select>
+      <button id="btn-preview-only" class="btn-preview-only" title="Show only effects with a preview image" aria-pressed="false">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        With preview
+      </button>
+      <button id="btn-delete-game" class="btn-delete-game hidden" title="Delete all effects in this game from local library" aria-label="Delete game group">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+        Delete game
+      </button>
+      <span id="effect-count" class="count-badge">—</span>
+    </div>
+  </div>
+
+  <section class="effect-assistant" aria-labelledby="assistant-title">
+    <div class="assistant-header">
+      <div>
+        <p class="assistant-eyebrow">Effect finder assistant</p>
+        <h1 id="assistant-title">Describe the effect you want to build</h1>
+      </div>
+      <div class="assistant-header-actions">
+        <span class="assistant-status" id="assistant-status">Ready</span>
+        <button
+          id="assistant-reset"
+          class="assistant-reset"
+          type="button"
+          title="Clear the assistant conversation"
+          aria-label="Reset assistant conversation"
+        >
+          <span aria-hidden="true">&#8635;</span> Reset chat
+        </button>
+      </div>
+    </div>
+
+    <div id="assistant-chat" class="assistant-chat" role="log" aria-live="polite" aria-label="Effect helper conversation">
+      <div class="assistant-msg assistant-msg-bot">
+        Tell me what you want to create and I will narrow the gallery.
+      </div>
+      <div class="assistant-quick-actions" aria-label="Suggested prompts">
+        <button class="assistant-chip" type="button" data-prompt="Show me fire particle effects">Fire particles</button>
+        <button class="assistant-chip" type="button" data-prompt="I need electric shader effects">Electric shaders</button>
+        <button class="assistant-chip" type="button" data-prompt="Find smoke effects from project scans">Smoke from scans</button>
+        <button class="assistant-chip" type="button" data-prompt="Reset filters and show all effects">Show all effects</button>
+      </div>
+    </div>
+
+    <form id="assistant-form" class="assistant-input-row" autocomplete="off">
+      <input
+        id="assistant-input"
+        type="text"
+        placeholder="Example: I need a blue magical shield particle for a boss"
+        aria-label="Ask the effect finder assistant"
+      >
+      <button id="assistant-send" class="btn-primary" type="submit">Ask</button>
+    </form>
+  </section>
+
+  <main class='gallery-main'>
+    <div id="gallery" class="gallery-grid" aria-live="polite"></div>
+
+    <div id="empty-state" class="state-card hidden">
+      <div class="state-icon">✦</div>
+      <p id="empty-msg">No effects found.</p>
+      <p class="state-sub" id="empty-sub">Configure your centralized repo in Settings to get started.</p>
+      <button class="btn-primary" id="btn-empty-settings">Open Settings</button>
+    </div>
+
+    <div id="loading-state" class="state-card">
+      <div class="spinner" aria-label="Loading"></div>
+      <p>Loading effects…</p>
+    </div>
+    <aside id='side-preview' class='side-preview hidden' aria-live='polite'>
+      <div class='side-preview-media' id='side-preview-media'></div>
+      <div class='side-preview-content'>
+        <div class='side-preview-heading'>
+          <div>
+            <p id='side-preview-game' class='side-preview-game'></p>
+            <h2 id='side-preview-name'>Select an effect</h2>
+          </div>
+          <span id='side-preview-type' class='card-type-badge'></span>
+        </div>
+        <div id='side-preview-tags' class='card-tags'></div>
+        <div class='side-preview-downloads'>
+          <button id='side-preview-download' class='btn-primary'>Download file</button>
+          <button id='side-preview-send-unity' class='btn-secondary'>Send to Unity</button>
+        </div>
+        <button id='side-preview-open' class='btn-primary side-preview-open'>Open full preview</button>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Upload Package Modal -->
+  <div id="modal-upload-package" class="modal hidden" role="dialog" aria-modal="true" aria-label="Upload Unity Package">
+    <div class="modal-content modal-wide">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h2>Upload Unity Package</h2>
+          <span id="pkg-step-label" class="step-indicator">Step 1 of 2</span>
+        </div>
+        <button class="modal-close" id="btn-close-upload-pkg" aria-label="Close">×</button>
+      </div>
+
+      <!-- Step 1: pick file -->
+      <div id="pkg-step-pick" class="add-step">
+        <div class="modal-body">
+          <div class="field">
+            <span class="field-label">Preview Container Project <em>(from Settings)</em></span>
+            <div class="pkg-path-row">
+              <code id="pkg-unity-path" class="pkg-path-display">—</code>
+              <button id="btn-pkg-open-settings" class="btn-secondary btn-sm">Configure…</button>
+            </div>
+          </div>
+          <label class="field">
+            <span class="field-label">.unitypackage file</span>
+            <input type="file" id="pkg-file-input" accept=".unitypackage" class="pkg-file-input">
+            <span class="field-hint">The file is saved to <code>Assets\ImportedPackages\</code>. If the project is open, that Unity Editor imports it and builds the preview scene automatically.</span>
+          </label>
+          <div id="pkg-no-path-warn" class="inline-warning hidden">
+            ⚠ Preview Container Project Path is not set. Open Settings and add it before uploading.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-upload-pkg" class="btn-primary" disabled>Upload Package</button>
+          <button id="btn-cancel-upload" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Step 1b: uploading progress -->
+      <div id="pkg-step-uploading" class="add-step hidden">
+        <div class="modal-body modal-body-center">
+          <div class="push-progress-wrap">
+            <div id="pkg-progress-bar" class="push-progress-bar" style="width:0%"></div>
+          </div>
+          <p id="pkg-upload-status" class="step-msg">Uploading…</p>
+          <p id="pkg-upload-pct" class="step-sub"></p>
+        </div>
+      </div>
+
+      <!-- Step 2: next steps + import captures -->
+      <div id="pkg-step-done" class="add-step hidden">
+        <div class="modal-body">
+          <ol class="pkg-steps-list">
+            <li id="pkg-task-upload" class="pkg-step-done">
+              <strong>Package uploaded</strong>
+              <span id="pkg-saved-path" class="step-sub"></span>
+            </li>
+            <li id="pkg-task-import">
+              <strong>Import package in Unity</strong>
+              <span class="step-sub">The configured Unity project imports the package automatically.</span>
+            </li>
+            <li id="pkg-task-capture">
+              <strong>Build scene and capture previews</strong>
+              <span class="step-sub">Unity places particle prefabs in <code>EffectsCaptureScene</code>, keeps them in the scene, and renders each preview.</span>
+            </li>
+            <li id="pkg-task-gallery">
+              <strong>Import captures here</strong>
+              <span class="step-sub">Completed captures are pulled into the gallery automatically.</span>
+            </li>
+          </ol>
+          <div id="pkg-captures-count" class="step-sub" style="margin:.5rem 0"></div>
+          <div id="pkg-import-msg" class="step-sub"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-check-captures" class="btn-secondary">Check Captures Folder</button>
+          <button id="btn-import-captures" class="btn-primary">Import Captures → Gallery</button>
+          <button id="btn-close-pkg-done" class="btn-secondary">Close</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Add Project Modal -->
+  <div id="modal-add-project" class="modal hidden" role="dialog" aria-modal="true" aria-label="Add Unity Project">
+    <div class="modal-content modal-wide">
+
+      <!-- Shared header -->
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h2>Scan a Unity Game Project</h2>
+          <span id="add-step-indicator" class="step-indicator">Step 1 of 3</span>
+        </div>
+        <button class="modal-close" id="btn-close-add-project" aria-label="Close">×</button>
+      </div>
+
+      <!-- Step 1: Configure -->
+      <div id="add-step-config" class="add-step">
+        <div class="modal-body">
+          <label class="field">
+            <span class="field-label">Game / Project Name</span>
+            <input type="text" id="add-game-name" placeholder="e.g. My Awesome Game" spellcheck="false">
+          </label>
+          <div class="automation-target automation-target-config automation-target-editable">
+            <label class="field automation-path-field" for="add-source-unity-path">
+              <span class="field-label">Source Game Project Path</span>
+              <div class="automation-path-row">
+                <input
+                  type="text"
+                  id="add-source-unity-path"
+                  placeholder="e.g. E:\UnityProjects\MyGame"
+                  spellcheck="false">
+                <button type="button" id="btn-validate-source-project" class="btn-secondary">Validate</button>
+              </div>
+              <span id="add-source-unity-status" class="field-hint">
+                Enter the Unity game project containing Assets and ProjectSettings.
+              </span>
+            </label>
+            <span id="add-server-unity-ready" class="automation-ready not-ready">Not checked</span>
+          </div>
+          <div class="automation-target automation-target-config">
+            <div>
+              <span class="field-label">Preview Container Project</span>
+              <code id="add-preview-unity-path">Checking server configuration...</code>
+            </div>
+            <span id="add-preview-unity-ready" class="automation-ready">Checking</span>
+          </div>
+          <div class="field">
+            <span class="field-label">Browser-only Folder Scan <em>(optional)</em></span>
+            <div class="folder-row">
+              <button id="btn-pick-folder" class="btn-secondary">Pick Folder…</button>
+              <span id="folder-display" class="folder-display">No folder selected</span>
+            </div>
+            <span class="field-hint">Optional catalog scan. Full package extraction uses the source path above.</span>
+          </div>
+          <div id="api-warning" class="inline-warning hidden">
+            ⚠ Your browser does not support the File System Access API. Use Chrome 86+ or Edge 86+.
+          </div>
+          <div class="scan-scope-note">
+            <div class="scan-scope-icon" aria-hidden="true">01</div>
+            <div>
+              <strong>This step catalogs the project</strong>
+              <p>
+                The browser finds prefab and effect assets. Unity automation then resolves
+                dependencies, builds packages, and renders previews.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-start-unity-extraction" class="btn-primary" disabled>Extract Packages + Previews</button>
+          <button id="btn-start-scan" class="btn-secondary" disabled>Browser Scan</button>
+          <button class="btn-secondary" id="btn-cancel-add">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Scanning -->
+      <div id="add-step-scanning" class="add-step hidden">
+        <div class="modal-body modal-body-center">
+          <div class="spinner"></div>
+          <p id="scan-status" class="step-msg">Scanning project…</p>
+          <p id="scan-count" class="step-sub"></p>
+          <div class="scan-stage-strip" aria-label="Current scan scope">
+            <span>Scenes &amp; Prefabs</span>
+            <span>Particles</span>
+            <span>Shaders</span>
+            <span>Materials</span>
+            <span>VFX</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: Review -->
+      <div id="add-step-review" class="add-step hidden">
+        <div class="modal-body">
+          <div id="scan-summary" class="scan-summary"></div>
+          <div class="review-pipeline">
+            <div class="review-pipeline-heading">
+              <div>
+                <strong>Unity package and preview handoff</strong>
+                <p>The scan results become inputs to the automated Unity extraction job.</p>
+              </div>
+              <span>Next</span>
+            </div>
+            <ol>
+              <li><span>1</span><div><strong>Find particle roots</strong><p>Scan scenes and prefab assets, opening the outer prefab root for nested Particle Systems.</p></div></li>
+              <li><span>2</span><div><strong>Export Unity package</strong><p>Build a particle-only prefab, skip effects that still reference Package Manager assets, and bundle safe project dependencies.</p></div></li>
+              <li><span>3</span><div><strong>Build the capture scene</strong><p>Instantiate the prefab, clear and simulate Particle Systems for 1.25 seconds.</p></div></li>
+              <li><span>4</span><div><strong>Frame and render</strong><p>Fit an orthographic camera to the effect bounds and save a PNG preview.</p></div></li>
+              <li><span>5</span><div><strong>Publish the library entry</strong><p>Attach the package, preview, metadata, and warnings to the gallery item.</p></div></li>
+            </ol>
+          </div>
+          <div class="automation-target">
+            <div>
+              <span class="field-label">Source game project</span>
+              <code id="review-unity-path">Checking server configuration...</code>
+              <p id="review-unity-note">This project will be scanned and packaged by Unity.</p>
+            </div>
+            <span id="review-unity-ready" class="automation-ready">Checking</span>
+          </div>
+          <div class="automation-target">
+            <div>
+              <span class="field-label">Preview container project</span>
+              <code id="review-preview-unity-path">Checking server configuration...</code>
+              <p>Exported packages are imported here only for preview capture.</p>
+            </div>
+            <span id="review-preview-unity-ready" class="automation-ready">Checking</span>
+          </div>
+          <p class="field-hint review-hint">
+            Files will be committed to
+            <strong id="review-repo">—</strong>
+            using your GitHub token.
+          </p>
+          <div id="push-token-warning" class="inline-warning hidden">
+            ⚠ No GitHub token configured. Open Settings and add a token with <code>repo</code> scope to enable pushing.
+          </div>
+          <div id="push-file-warning" class="inline-warning hidden">
+            ⚠ This page was opened as <strong>file://</strong>. Chrome blocks GitHub API write calls from a local file.
+            Serve the webapp with <strong>VS Code Live Server</strong> (right-click index.html → Open with Live Server) then try again.
+          </div>
+          <div id="push-network-warning" class="inline-warning hidden">
+            ⚠ A firewall or proxy is blocking writes to <code>api.github.com</code>.
+            Use <strong>Download ZIP</strong> instead, then <code>git push</code> the extracted folder manually.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-run-extraction" class="btn-primary" disabled>Extract Packages + Previews</button>
+          <button id="btn-push" class="btn-primary">Push to Repo</button>
+          <button id="btn-download-zip" class="btn-secondary">Load Collected Effects</button>
+          <button id="btn-back-config" class="btn-secondary">← Back</button>
+        </div>
+      </div>
+
+      <!-- Step 4: Pushing -->
+      <div id="add-step-pushing" class="add-step hidden">
+        <div class="modal-body modal-body-center">
+          <div class="push-progress-wrap">
+            <div id="push-progress-bar" class="push-progress-bar" style="width:0%"></div>
+          </div>
+          <p id="push-status" class="step-msg">Pushing…</p>
+          <p id="push-file" class="step-sub"></p>
+          <div id="extraction-progress-details" class="extraction-progress-details hidden"></div>
+        </div>
+      </div>
+
+      <!-- Step 5: Done -->
+      <div id="add-step-done" class="add-step hidden">
+        <div class="modal-body modal-body-center">
+          <div id="done-icon" class="done-icon">✓</div>
+          <p id="done-msg" class="step-msg">All done!</p>
+          <p id="done-sub" class="step-sub"></p>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-done-reload" class="btn-primary">Reload Gallery</button>
+          <button id="btn-done-close" class="btn-secondary">Close</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Fixed bottom extraction progress bar -->
+  <div id="extraction-bottom-bar" class="extraction-bottom-bar hidden" role="status" aria-live="polite">
+    <div class="extraction-bottom-inner">
+      <div class="extraction-bottom-left">
+        <span id="extraction-bottom-icon" class="extraction-bottom-icon" aria-hidden="true">⟳</span>
+        <div class="extraction-bottom-text">
+          <span id="extraction-bottom-status" class="extraction-bottom-status">Starting extraction…</span>
+          <span id="extraction-bottom-detail" class="extraction-bottom-detail"></span>
+        </div>
+      </div>
+      <div class="extraction-bottom-center">
+        <div class="extraction-bottom-track">
+          <div id="extraction-bottom-fill" class="extraction-bottom-fill" style="width:0%"></div>
+        </div>
+        <div id="extraction-bottom-counts" class="extraction-bottom-counts"></div>
+      </div>
+      <div class="extraction-bottom-right">
+        <button id="extraction-bottom-expand" class="btn-secondary btn-sm extraction-expand-button" aria-expanded="false" aria-controls="extraction-bottom-diagnostics" aria-label="Expand extraction logs" title="Expand extraction logs"><span aria-hidden="true">&#9650;</span></button>
+        <a id="extraction-bottom-log-download" class="btn-secondary btn-sm hidden" href="/api/project-extraction-log" download="effects-extraction-log.txt">Download Log</a>
+        <button id="extraction-bottom-reload" class="btn-primary btn-sm hidden">Reload Gallery</button>
+        <button id="extraction-bottom-close" class="btn-secondary btn-sm">✕</button>
+      </div>
+    </div>
+    <div id="extraction-bottom-diagnostics" class="extraction-diagnostics hidden">
+      <details id="extraction-bottom-logs" class="extraction-log-details hidden">
+        <summary id="extraction-bottom-logs-summary">Steps &amp; logs</summary>
+        <div class="extraction-log-panel">
+          <p id="extraction-bottom-logs-status" role="status">Logs will appear when the extraction worker starts.</p>
+          <div id="extraction-bottom-log-sections"></div>
+        </div>
+      </details>
+      <details id="extraction-bottom-errors" class="extraction-error-details hidden">
+        <summary>Error details</summary>
+        <pre id="extraction-bottom-error-text"></pre>
+      </details>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="modal-settings" class="modal hidden" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button class="modal-close" id="btn-close-settings" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span class="field-label">Centralized Repo <em>(owner/repo)</em></span>
+          <input type="text" id="setting-repo" placeholder="e.g. myorg/effects-library" spellcheck="false">
+        </label>
+        <label class="field">
+          <span class="field-label">Branch</span>
+          <input type="text" id="setting-branch" placeholder="main">
+        </label>
+        <label class="field">
+          <span class="field-label">GitHub Token <em>(optional — for private repos)</em></span>
+          <input type="password" id="setting-token" placeholder="ghp_…" autocomplete="off">
+          <span class="field-hint">Stored only in your browser's localStorage. Never sent anywhere else.</span>
+        </label>
+        <label class="field">
+          <span class="field-label">Preview Container Project Path</span>
+          <input type="text" id="setting-preview-unitypath" placeholder="e.g. E:\GitHub\EffectsExtractor\BlankEffectsProject" spellcheck="false">
+          <span class="field-hint">
+            Blank Unity project used only to import exported packages and render preview captures.
+          </span>
+        </label>
+        <label class="field">
+          <span class="field-label">Local effects folder</span>
+          <div class="folder-row">
+            <input type="text" id="setting-localfolder" placeholder="e.g. E:\EffectsLibrary" spellcheck="false">
+          </div>
+          <span class="field-hint">
+            Folder where <strong>Load Collected Effects</strong> saves assets. Served at
+            <code>/local/</code> by <code>serve.ps1</code>. Leave blank to use the default
+            (<code>local-effects/</code> next to the repo).
+          </span>
+        </label>
+        <label class="field">
+          <span class="field-label">Local cache key</span>
+          <input type="text" id="setting-localkey" placeholder="effects-local-manifest" spellcheck="false">
+          <span class="field-hint">
+            localStorage key for the in-browser preview cache.
+            Change to keep separate effect libraries in the same browser.
+          </span>
+        </label>
+        <p id="setting-server-status" class="settings-save-status hidden" role="status"></p>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-settings" class="btn-primary">Save &amp; Reload</button>
+        <button id="btn-cancel-settings" class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/github-api.js"></script>
+  <!-- JSZip for client-side ZIP generation (Download ZIP feature) -->
+  <script async src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="js/project-manager.js"></script>
+  <script src="js/package-importer.js"></script>
+  <script src="js/gallery.js"></script>
+</body>
+</html>

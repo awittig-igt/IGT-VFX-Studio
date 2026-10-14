@@ -32,6 +32,7 @@ namespace ViewFX.Editor
         private Vector2 scrollPosition;
         private UnityWebRequest activeRequest;
         private Action<Reply> onReply;
+        private bool cancelRequested;
         private double nextPoll;
         private const double MessageDuration = 5;
         private double messageExpiresAt;
@@ -119,8 +120,7 @@ namespace ViewFX.Editor
                 if (selectedMenu == Menu.ViewFX) DrawCompanion();
                 else if (selectedMenu == Menu.FindFX)
                 {
-                    EditorGUILayout.LabelField("FindFX", EditorStyles.boldLabel);
-                    EditorGUILayout.HelpBox("FindFX tools are coming soon. FindFX will help you find effects in your Unity project.", MessageType.Info);
+                    FindFXPanel.Draw();
                 }
             }
         }
@@ -144,7 +144,7 @@ namespace ViewFX.Editor
             DrawToolCard(Menu.ViewFX, logo, "ViewFX",
                 "Connect your ViewFX account and download effects directly into your Unity project.");
             DrawToolCard(Menu.FindFX, findFXLogo, "FindFX",
-                "Automatically find effects in your project, package them, and upload them to ViewFX.");
+                "Find particle effects in your scene, package them, and browse previews in your local gallery.");
         }
 
         private void DrawToolCard(Menu menu, Texture2D texture, string title, string description)
@@ -226,11 +226,10 @@ namespace ViewFX.Editor
 
         private void DrawCompanion()
         {
-            EditorGUILayout.LabelField("ViewFX Manager", EditorStyles.boldLabel);
             EditorGUILayout.LabelField("Current Project:", new DirectoryInfo(Path.GetDirectoryName(Application.dataPath)).Name);
             EditorGUILayout.Space(4);
             bool connected = !string.IsNullOrEmpty(state.token);
-            bool pending = !string.IsNullOrEmpty(state.id);
+            bool pending = !string.IsNullOrEmpty(state.id) && !cancelRequested;
             using (new EditorGUI.DisabledScope(connected || pending || activeRequest != null))
                 state.siteUrl = EditorGUILayout.TextField("ViewFX site:", state.siteUrl);
             if (connected)
@@ -279,16 +278,43 @@ namespace ViewFX.Editor
             }
             else if (pending)
             {
-                if (GUILayout.Button("Open Browser Again")) Application.OpenURL(state.approvalUrl);
-                using (new EditorGUI.DisabledScope(activeRequest != null))
-                    if (GUILayout.Button("Cancel")) Cancel();
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.FlexibleSpace();
+                    if (GUILayout.Button("Open Browser Again", GUILayout.Width(150), GUILayout.Height(36)))
+                        Application.OpenURL(state.approvalUrl);
+                    GUILayout.Space(4);
+                    using (new EditorGUI.DisabledScope(cancelRequested && activeRequest != null))
+                        if (GUILayout.Button("Cancel", GUILayout.Width(150), GUILayout.Height(36))) Cancel();
+                    GUILayout.FlexibleSpace();
+                }
             }
             else
             {
-                using (new EditorGUI.DisabledScope(activeRequest != null))
-                    if (TintedButton("Connect to ViewFX", new Color(0.78f, 1f, 0.82f))) Connect();
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.FlexibleSpace();
+                    using (new EditorGUI.DisabledScope(activeRequest != null))
+                        if (TintedButton("Connect to ViewFX", new Color(0.78f, 1f, 0.82f), GUILayout.Width(150), GUILayout.Height(36)))
+                        {
+                            if (cancelRequested) CancelConnection(true);
+                            else Connect();
+                        }
+                    GUILayout.FlexibleSpace();
+                }
             }
             if (!connected) DrawMessages();
+        }
+
+        internal static bool CenteredButton(string label)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.FlexibleSpace();
+                bool clicked = GUILayout.Button(label, GUILayout.Width(150), GUILayout.Height(36));
+                GUILayout.FlexibleSpace();
+                return clicked;
+            }
         }
 
         private void DrawMessages()
@@ -370,6 +396,7 @@ namespace ViewFX.Editor
 
         private void Tick()
         {
+            if (selectedMenu == Menu.FindFX && FindFXPanel.IsLaunching) Repaint();
             double now = EditorApplication.timeSinceStartup;
             if (lastDownloadStatus != DownloadService.Status)
             {
@@ -406,7 +433,7 @@ namespace ViewFX.Editor
                 catch (Exception error) { message = "Could not complete connection: " + error.Message; }
                 finally { completed.Dispose(); Repaint(); }
             }
-            if (activeRequest != null || string.IsNullOrEmpty(state.id) || EditorApplication.timeSinceStartup < nextPoll) return;
+            if (cancelRequested || activeRequest != null || string.IsNullOrEmpty(state.id) || EditorApplication.timeSinceStartup < nextPoll) return;
             if (DateTimeOffset.TryParse(state.expiresAt, out var expiry) && expiry <= DateTimeOffset.UtcNow)
             { Clear(); message = "Connection request expired. Connect again to retry."; Repaint(); return; }
             nextPoll = EditorApplication.timeSinceStartup + 3;
@@ -439,11 +466,28 @@ namespace ViewFX.Editor
             { Clear(); ShowTemporaryMessage("Disconnected from ViewFX."); });
         }
 
-        private void Cancel() => Send("DELETE", "/api/unity/requests/" + state.id, state.pollToken, null, _ =>
-        { Clear(); ShowTemporaryMessage("Connection cancelled."); });
+        private void Cancel() => CancelConnection(false);
+
+        private void CancelConnection(bool reconnect)
+        {
+            cancelRequested = true;
+            activeRequest?.Abort();
+            activeRequest?.Dispose();
+            activeRequest = null;
+            onReply = null;
+            message = "Cancelling connection...";
+            Send("DELETE", "/api/unity/requests/" + state.id, state.pollToken, null, _ =>
+            {
+                Clear();
+                if (reconnect) Connect();
+                else ShowTemporaryMessage("Connection cancelled.");
+            });
+            Repaint();
+        }
 
         private void Clear()
         {
+            cancelRequested = false;
             CredentialStore.Clear();
             SessionState.EraseString(StateKey);
             state = new State { siteUrl = state.siteUrl };

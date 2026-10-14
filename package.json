@@ -1,7 +1,8 @@
 {
   "name": "com.viewfx.editor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "displayName": "ViewFX",
-  "description": "Connect your Unity project to ViewFX and download effects from the website.",
-  "unity": "2022.3"
+  "description": "Discover and preview particle effects with FindFX, and connect to ViewFX to download effects into Unity.",
+  "unity": "6000.3",
+  "unityRelease": "15f1"
 }

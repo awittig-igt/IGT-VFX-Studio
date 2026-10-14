@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Effect Viewer — Effects Extractor Library</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Prism syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+</head>
+<body class="viewer-page">
+
+  <!-- file:// warning (same as index.html) -->
+  <div id="file-protocol-banner" class="file-banner hidden">
+    <strong>⚠ Local file detected.</strong>
+    GitHub API calls are blocked when the page is opened as <code>file://</code>.
+    Run <code>.\serve.ps1</code> from the repo root and open the URL it prints (typically <code>http://localhost:8081</code>).
+    <button class="file-banner-close" onclick="this.parentElement.classList.add('hidden')" aria-label="Dismiss">×</button>
+  </div>
+  <script>if(location.protocol==='file:')document.getElementById('file-protocol-banner').classList.remove('hidden');</script>
+
+  <header>
+    <div class="header-inner">
+      <a href="index.html" class="back-btn" aria-label="Back to gallery">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+        Gallery
+      </a>
+      <h1 id="effect-title" class="viewer-title">Loading…</h1>
+      <div class="header-badges">
+        <span id="badge-type" class="badge">—</span>
+        <span id="badge-game" class="badge badge-game">—</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="viewer-layout">
+
+    <!-- ── Left: Preview ──────────────────────────────────────────────────── -->
+    <section class="preview-panel" aria-label="Effect preview">
+      <div class="preview-toolbar">
+        <div class="preview-tabs">
+          <button id="btn-thumb-tab" class="tab-btn active">Thumbnail</button>
+          <button id="btn-live-tab" class="tab-btn">
+            <span id="live-tab-dot" class="live-dot"></span>
+            <span id="live-tab-label">Live Preview</span>
+          </button>
+        </div>
+        <button id="btn-reset-cam" class="btn-icon" title="Reset camera" aria-label="Reset camera">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+        </button>
+      </div>
+
+      <div class="preview-container">
+        <img id="preview-thumbnail" src="" alt="Effect thumbnail" class="thumb-img">
+        <canvas id="preview-canvas" class="preview-canvas hidden"></canvas>
+        <div id="preview-source-badge" class="preview-source-badge hidden">Unity Editor Capture</div>
+        <div id="preview-placeholder" class="preview-placeholder hidden">
+          <span class="placeholder-icon" aria-hidden="true">◈</span>
+          <p id="placeholder-msg">Live preview not available for this type</p>
+        </div>
+        <div id="preview-loading" class="preview-loading hidden">
+          <div class="spinner"></div>
+          <p>Building preview…</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Right: Info ─────────────────────────────────────────────────────── -->
+    <section class="info-panel" aria-label="Effect details">
+      <div class="info-tabs" role="tablist">
+        <button class="tab-btn active" role="tab" data-panel="metadata" aria-selected="true">Info</button>
+        <button class="tab-btn" role="tab" data-panel="source" aria-selected="false">Source</button>
+        <button class="tab-btn" role="tab" data-panel="files" aria-selected="false">Files</button>
+      </div>
+
+      <!-- Info -->
+      <div id="panel-metadata" class="panel-content" role="tabpanel">
+        <table class="meta-table">
+          <tbody id="meta-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Source code -->
+      <div id="panel-source" class="panel-content hidden" role="tabpanel">
+        <div class="source-toolbar">
+          <span id="source-filename" class="source-name">—</span>
+          <button id="btn-copy-source" class="btn-secondary btn-sm">Copy</button>
+        </div>
+        <pre class="source-pre"><code id="source-code" class="language-glsl"></code></pre>
+      </div>
+
+      <!-- Files -->
+      <div id="panel-files" class="panel-content hidden" role="tabpanel">
+        <ul id="files-list" class="files-list"></ul>
+      </div>
+    </section>
+
+  </div><!-- /viewer-layout -->
+
+  <!-- Three.js r128 (last version with examples/js/ controls) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- Prism -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-glsl.min.js"></script>
+
+  <script src="js/config.js"></script>
+  <script src="js/github-api.js"></script>
+  <script src="js/particle-preview.js"></script>
+  <script src="js/shader-preview.js"></script>
+  <script src="js/viewer.js"></script>
+</body>
+</html>
