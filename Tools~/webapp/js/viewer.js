@@ -1,6 +1,5 @@
 // ── Viewer ────────────────────────────────────────────────────────────────
 let currentEffect = null;
-let livePreview   = null;
 let currentAssetSource = 'github';
 
 document.addEventListener('DOMContentLoaded', init);
@@ -39,7 +38,6 @@ async function init() {
   currentEffect = (manifest.effects || []).find(e => e.id === id);
   if (!currentEffect) { showError(`Effect "${id}" not found. Try reloading the gallery.`); return; }
   render(currentEffect);
-  if (embedded) document.getElementById('btn-live-tab').click();
 }
 
 // ── Render effect ─────────────────────────────────────────────────────────
@@ -53,7 +51,7 @@ function render(e) {
 
   document.getElementById('badge-game').textContent = e.game || '—';
 
-  // Thumbnail
+  // Unity capture
   const thumbUrl = e.files?.thumbnail ? getThumbnailURL(e.files.thumbnail, currentAssetSource) : null;
   const thumbEl  = document.getElementById('preview-thumbnail');
   if (thumbUrl) {
@@ -62,22 +60,17 @@ function render(e) {
     thumbEl.onerror = () => {
       thumbEl.dataset.loadError = '1';
       thumbEl.classList.add('hidden');
-      showPlaceholder(
-        e.type === 'particle' || e.type === 'shader'
-          ? 'No thumbnail available'
-          : 'Unity Editor capture could not be loaded'
-      );
+      showPlaceholder('Unity capture could not be loaded');
     };
   } else {
     thumbEl.classList.add('hidden');
-    showPlaceholder('No thumbnail available');
+    showPlaceholder('No Unity capture is available for this effect');
   }
 
   fillMetadata(e);
   loadSource(e);
   fillFiles(e);
   initTabs();
-  initPreviewTabs(e);
   document.dispatchEvent(new CustomEvent('effect-ready', { detail: { effect: e, source: currentAssetSource } }));
 }
 
@@ -157,7 +150,7 @@ function fillFiles(e) {
         <span class="file-label">${esc(item.label)}</span>
         <span class="file-path" title="${escAttr(item.filename)}">${esc(item.filename)}</span>
         <div class="file-actions">
-          ${canSend ? `<button class="btn-secondary btn-sm" type="button" data-send-index="${index}" title="Import this package into the Unity preview project and generate thumbnails">Generate Unity Preview</button>` : ''}
+          ${canSend ? `<button class="btn-secondary btn-sm" type="button" data-send-index="${index}" title="Import this package into the Unity preview project and generate thumbnails">Regenerate Unity Preview</button>` : ''}
           <button class="btn-secondary btn-sm" type="button" data-download-index="${index}">Download</button>
         </div>
       </li>`;
@@ -240,108 +233,11 @@ function initTabs() {
   });
 }
 
-// ── Preview tabs ──────────────────────────────────────────────────────────
-function initPreviewTabs(e) {
-  const btnThumb = document.getElementById('btn-thumb-tab');
-  const btnLive  = document.getElementById('btn-live-tab');
-  const liveDot  = document.getElementById('live-tab-dot');
-  const liveLabel = document.getElementById('live-tab-label');
-  const thumbEl  = document.getElementById('preview-thumbnail');
-  const canvas   = document.getElementById('preview-canvas');
-  const loading  = document.getElementById('preview-loading');
-  const resetCamera = document.getElementById('btn-reset-cam');
-  const sourceBadge = document.getElementById('preview-source-badge');
-  const animatedCapture = /\.gif(?:[?#]|$)/i.test(e.files?.thumbnail || '');
-  const supportsLive = !animatedCapture && (e.type === 'particle' || (e.type === 'shader' && Boolean(e.files?.main)));
-  const hasCapture = Boolean(e.files?.thumbnail);
-
-  if (!supportsLive) {
-    liveLabel.textContent = 'Unity Capture';
-    liveDot.classList.add('hidden');
-    resetCamera.classList.add('hidden');
-    document.querySelector('.preview-toolbar')?.classList.add('capture-fallback');
-  }
-
-  btnThumb.addEventListener('click', () => {
-    activatePreviewTab(btnThumb, btnLive);
-    canvas.classList.add('hidden');
-    sourceBadge.classList.add('hidden');
-    hidePlaceholder();
-    // Only show the thumbnail if it loaded successfully (no data-load-error)
-    if (hasCapture && thumbEl.src && !thumbEl.dataset.loadError) {
-      thumbEl.classList.remove('hidden');
-    } else {
-      showPlaceholder('No thumbnail available');
-    }
-    stopLive();
-  });
-
-  btnLive.addEventListener('click', async () => {
-    activatePreviewTab(btnLive, btnThumb);
-    thumbEl.classList.add('hidden');
-    sourceBadge.classList.add('hidden');
-    hidePlaceholder();
-
-    stopLive();
-
-    // Browser renderers currently exist only for parsed particle metadata and
-    // standalone shader source. Prefab VFX can depend on Unity renderers,
-    // materials, scripts, Shader Graph, or VFX Graph, so use the image rendered
-    // by the Unity capture scene instead of pretending to reproduce it here.
-    if (!supportsLive) {
-      if (hasCapture && thumbEl.src && !thumbEl.dataset.loadError) {
-        thumbEl.classList.remove('hidden');
-        sourceBadge.classList.remove('hidden');
-      } else {
-        showPlaceholder('No Unity Editor capture is available for this effect');
-      }
-      return;
-    }
-
-    loading.classList.remove('hidden');
-    canvas.classList.remove('hidden');
-
-    try {
-      if (e.type === 'particle') {
-        livePreview = new ParticlePreview(canvas, e.metadata || {});
-        canvas.classList.remove('hidden');
-      } else if (e.type === 'shader') {
-        const src = e.files?.main ? await fetchEffectFileContent(e.files.main, currentAssetSource).catch(() => null) : null;
-        livePreview = new ShaderPreview(canvas, src, e.metadata || {});
-        canvas.classList.remove('hidden');
-      }
-    } catch (err) {
-      canvas.classList.add('hidden');
-      showPlaceholder(`Preview error: ${err.message}`);
-    } finally {
-      loading.classList.add('hidden');
-    }
-  });
-
-  resetCamera.addEventListener('click', () => {
-    livePreview?.resetCamera?.();
-  });
-}
-
-function activatePreviewTab(on, off) {
-  on.classList.add('active');
-  off.classList.remove('active');
-}
-
-function stopLive() {
-  if (livePreview) { livePreview.stop(); livePreview = null; }
-}
-
 function showPlaceholder(msg) {
   const ph = document.getElementById('preview-placeholder');
-  document.getElementById('preview-source-badge')?.classList.add('hidden');
   ph.querySelector('p').textContent = msg || 'Not available';
   ph.classList.remove('hidden');
 }
-function hidePlaceholder() {
-  document.getElementById('preview-placeholder').classList.add('hidden');
-}
-
 // ── Error state ───────────────────────────────────────────────────────────
 function showError(msg) {
   document.getElementById('effect-title').textContent = 'Error';

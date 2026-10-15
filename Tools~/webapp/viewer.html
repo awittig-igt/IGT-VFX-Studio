@@ -38,30 +38,11 @@
 
     <!-- ── Left: Preview ──────────────────────────────────────────────────── -->
     <section class="preview-panel" aria-label="Effect preview">
-      <div class="preview-toolbar">
-        <div class="preview-tabs">
-          <button id="btn-thumb-tab" class="tab-btn active">Preview</button>
-          <button id="btn-live-tab" class="tab-btn">
-            <span id="live-tab-dot" class="live-dot"></span>
-            <span id="live-tab-label">Live Preview</span>
-          </button>
-        </div>
-        <button id="btn-reset-cam" class="btn-icon" title="Reset camera" aria-label="Reset camera">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
-        </button>
-      </div>
-
       <div class="preview-container">
-        <img id="preview-thumbnail" src="" alt="Effect thumbnail" class="thumb-img">
-        <canvas id="preview-canvas" class="preview-canvas hidden"></canvas>
-        <div id="preview-source-badge" class="preview-source-badge hidden">Unity Editor Capture</div>
+        <img id="preview-thumbnail" src="" alt="Unity capture of the effect" class="thumb-img">
         <div id="preview-placeholder" class="preview-placeholder hidden">
           <span class="placeholder-icon" aria-hidden="true">◈</span>
-          <p id="placeholder-msg">Live preview not available for this type</p>
-        </div>
-        <div id="preview-loading" class="preview-loading hidden">
-          <div class="spinner"></div>
-          <p>Building preview…</p>
+          <p id="placeholder-msg">No Unity capture is available for this effect</p>
         </div>
       </div>
     </section>
@@ -122,18 +103,12 @@
     </form>
   </dialog>
 
-  <!-- Three.js r128 (last version with examples/js/ controls) -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <!-- Prism -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-glsl.min.js"></script>
 
   <script src="js/config.js"></script>
   <script src="js/github-api.js"></script>
-  <script src="js/preview-viewport.js"></script>
-  <script src="js/particle-preview.js"></script>
-  <script src="js/shader-preview.js"></script>
   <script src="js/viewer.js"></script>
   <script src="js/viewfx-publisher.js"></script>
 </body>
