@@ -425,14 +425,19 @@ main {
   margin-bottom: .15rem;
 }
 .side-preview-heading .card-type-badge { position: static; flex-shrink: 0; }
-.side-preview-downloads {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: .5rem;
+.side-preview-publish {
+  width: 100%;
+  min-height: 44px;
   margin-top: 1rem;
 }
-.side-preview-downloads button { width: 100%; }
-.side-preview-open { width: 100%; margin-top: 1rem; }
+.side-preview-downloads {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: .5rem;
+  margin-top: .5rem;
+}
+.side-preview-downloads button { width: 100%; min-height: 40px; }
+.side-preview-open { width: 100%; min-height: 40px; margin-top: 1rem; }
 .effect-card.selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), 0 8px 24px rgba(0,0,0,.4);
