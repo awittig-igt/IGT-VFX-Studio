@@ -21,6 +21,9 @@ namespace ViewFX.Editor
         private static string libraryPath;
         private static Process launcher;
         private static string launchLog;
+        private static Process serverStopper;
+        private static string serverStopLog;
+        private static string serverStopStatus;
         private const string LauncherKey = "ViewFX.FindFX.Launcher";
         public static bool IsLaunching => launcher != null;
 
@@ -46,6 +49,8 @@ namespace ViewFX.Editor
         {
             launcher?.Dispose();
             launcher = null;
+            serverStopper?.Dispose();
+            serverStopper = null;
         }
 
         public static void Draw()
@@ -92,12 +97,20 @@ namespace ViewFX.Editor
                     EditorGUILayout.HelpBox(
                         "Select prefabs, VFX Graph assets, shaders or folders under Assets in the Project window. " +
                         "Folders are searched recursively; unrelated assets are not scanned.", MessageType.Info);
+                using (new EditorGUI.DisabledScope(Application.platform != RuntimePlatform.WindowsEditor ||
+                    launcher != null || serverStopper != null))
+                {
+                    if (ViewFXWindow.CenteredButton("Kill all servers"))
+                        StopAllServers();
+                }
+                if (!string.IsNullOrEmpty(serverStopStatus))
+                    EditorGUILayout.HelpBox(serverStopStatus, MessageType.Info);
             }
             EditorGUILayout.HelpBox(
                 "Windows only. Requires Unity 6000.3.15f1. Previews use a disposable copy; the source stays open.",
                 MessageType.None);
             using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode ||
-                EditorApplication.isCompiling || EditorApplication.isUpdating || launcher != null || Application.platform != RuntimePlatform.WindowsEditor))
+                EditorApplication.isCompiling || EditorApplication.isUpdating || launcher != null || serverStopper != null || Application.platform != RuntimePlatform.WindowsEditor))
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
@@ -186,8 +199,50 @@ namespace ViewFX.Editor
             return "'" + value.Replace("'", "''") + "'";
         }
 
+        private static void StopAllServers()
+        {
+            try
+            {
+                var package = PackageInfo.FindForAssembly(typeof(FindFXPanel).Assembly);
+                if (package == null)
+                    throw new InvalidOperationException("Could not locate the ViewFX companion package.");
+                var script = Path.Combine(package.resolvedPath, "Tools~", "stop-findfx-servers.ps1");
+                if (!File.Exists(script))
+                    throw new FileNotFoundException("The FindFX server stop script is missing.", script);
+                serverStopLog = Path.Combine(Path.GetTempPath(), "FindFX_Stop_" + Guid.NewGuid().ToString("N") + ".log");
+                var command = "& { try { & " + QuotePowerShell(script) +
+                    " } catch { Write-Output $_; exit 1 } } *> " + QuotePowerShell(serverStopLog);
+                serverStopper = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -EncodedCommand " +
+                        Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(command)),
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+                if (serverStopper == null)
+                    throw new InvalidOperationException("Could not start the FindFX server cleanup.");
+                serverStopStatus = "Stopping all FindFX web servers...";
+            }
+            catch (Exception exception)
+            {
+                serverStopStatus = "Could not stop FindFX servers: " + exception.Message;
+                Debug.LogException(exception);
+            }
+        }
+
         private static void CheckLauncher()
         {
+            if (serverStopper != null && serverStopper.HasExited)
+            {
+                var code = serverStopper.ExitCode;
+                serverStopper.Dispose();
+                serverStopper = null;
+                var result = File.Exists(serverStopLog) ? File.ReadAllText(serverStopLog).Trim() : "No cleanup log was produced.";
+                serverStopStatus = code == 0 ? result : "FindFX server cleanup failed: " + result;
+                if (code == 0) Debug.Log("[FindFX] " + serverStopStatus);
+                else Debug.LogError("[FindFX] " + serverStopStatus);
+            }
             if (launcher == null || !launcher.HasExited)
                 return;
             var exitCode = launcher.ExitCode;
