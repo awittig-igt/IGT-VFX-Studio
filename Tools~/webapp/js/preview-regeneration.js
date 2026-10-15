@@ -4,9 +4,17 @@
   const storageKey = 'findfx-preview-regeneration';
   let panel;
   function setBusy(busy) {
-    document.querySelectorAll('#side-preview-send-unity, [data-send-index]').forEach(button => { button.disabled = busy; });
+    document.querySelectorAll('#side-preview-send-unity, [data-send-index]').forEach(button => {
+      button.disabled = busy;
+      const message = button.dataset?.effectId === active?.effectId
+        ? 'Generating Unity Preview…'
+        : 'Another effect is currently generating';
+      button.textContent = busy ? message : 'Regenerate Unity Preview';
+      button.title = busy ? message : 'Regenerate the Unity capture GIF without changing the effect package';
+    });
     if (panel) panel.querySelector('button').hidden = busy;
   }
+  window.refreshPreviewRegenerationButtons = () => setBusy(Boolean(active));
   function show(message, progress, failed = false) {
     if (!panel) {
       panel = document.createElement('section');

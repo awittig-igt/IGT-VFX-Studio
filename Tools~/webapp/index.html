@@ -73,18 +73,16 @@
       <select id="game-filter" aria-label="Filter by game">
         <option value="all">All Games</option>
       </select>
-      <button id="btn-preview-only" class="btn-preview-only" title="Show only effects with a preview image" aria-pressed="false">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-        With preview
-      </button>
       <button id="btn-delete-game" class="btn-delete-game hidden" title="Delete all effects in this game from local library" aria-label="Delete game group">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
         Delete game
       </button>
       <span id="effect-count" class="count-badge">—</span>
+      <button id="btn-delete-all-local" class="btn-delete-game hidden" type="button">Delete all local packages</button>
     </div>
   </div>
 
+  <p id="delete-local-status" class="delete-local-status" role="status" aria-live="polite"></p>
   <section class="effect-assistant" aria-labelledby="assistant-title">
     <details class="assistant-disclosure">
     <summary class="assistant-summary">

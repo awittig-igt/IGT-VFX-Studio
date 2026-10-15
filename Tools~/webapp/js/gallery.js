@@ -4,7 +4,6 @@ let activeType = 'all';
 let activeGame = 'all';
 let activeSource = 'all';
 let searchQuery = '';
-let previewOnly = false;
 let selectedEffectId = null;
 let galleryAssetSource = 'github';
 let assistantElements = null;
@@ -189,15 +188,8 @@ function initFilters() {
     renderGallery();
   });
 
-  document.getElementById('btn-preview-only')?.addEventListener('click', () => {
-    previewOnly = !previewOnly;
-    const btn = document.getElementById('btn-preview-only');
-    btn.classList.toggle('active', previewOnly);
-    btn.setAttribute('aria-pressed', String(previewOnly));
-    renderGallery();
-  });
-
   document.getElementById('btn-delete-game')?.addEventListener('click', runDeleteGame);
+  document.getElementById('btn-delete-all-local')?.addEventListener('click', runDeleteAllLocal);
 }
 
 // ── Assistant chat ───────────────────────────────────────────────────────
@@ -307,9 +299,6 @@ function applyAssistantIntent(intent) {
     activeGame = 'all';
     activeSource = 'all';
     searchQuery = '';
-    previewOnly = false;
-    const btn = document.getElementById('btn-preview-only');
-    if (btn) { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); }
   } else {
     if (intent.type) activeType = intent.type;
     if (intent.source) activeSource = intent.source;
@@ -345,10 +334,46 @@ function appendAssistantMessage(text, role) {
 }
 
 function updateDeleteGameButton() {
+  const deleteAll = document.getElementById('btn-delete-all-local');
+  setVisible(deleteAll, galleryAssetSource === 'local' && allEffects.length > 0);
   const btn = document.getElementById('btn-delete-game');
   if (!btn) return;
   const show = galleryAssetSource === 'local' && activeGame !== 'all';
   setVisible(btn, show);
+}
+
+async function runDeleteAllLocal() {
+  if (galleryAssetSource !== 'local') return;
+  if (!window.confirm('Are you sure you want to delete ALL local packages?\n\nThis permanently removes every effect from the local FindFX library, including its package files, source copies, and previews, across all games and filters. Your original Unity projects and remote libraries are not changed. This cannot be undone.')) return;
+  const button = document.getElementById('btn-delete-all-local');
+  const status = document.getElementById('delete-local-status');
+  button.disabled = true;
+  button.textContent = 'Deleting local packages…';
+  status.classList.remove('error');
+  status.textContent = 'Deleting local package files, previews, and gallery entries. Please wait…';
+  try {
+    const response = await fetch('/api/delete-all-local', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || `Delete failed (${response.status}).`);
+    allEffects.forEach(deleteFromLocalCache);
+    allEffects = [];
+    selectedEffectId = null;
+    activeGame = 'all';
+    const games = document.getElementById('game-filter');
+    games.innerHTML = '<option value="all">All Games</option>';
+    renderGallery();
+    document.getElementById('side-preview-media').replaceChildren();
+    document.getElementById('empty-msg').textContent = 'Your local library is empty.';
+    document.getElementById('empty-sub').textContent = 'Scan a Unity project or import a package to add effects again.';
+    updateDeleteGameButton();
+    status.textContent = `Deleted ${result.deleted} local effects and ${result.removedFiles} files. The local library is empty.`;
+  } catch (error) {
+    status.classList.add('error');
+    status.textContent = `Deletion could not finish: ${error.message} Refresh the library before retrying.`;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Delete all local packages';
+  }
 }
 
 async function runDeleteGame() {
@@ -567,7 +592,6 @@ function filterEffects() {
     if (activeType !== 'all' && e.type !== activeType) return false;
     if (activeGame !== 'all' && e.game !== activeGame) return false;
     if (activeSource !== 'all' && getEffectImportSource(e) !== activeSource) return false;
-    if (previewOnly && !e.files?.thumbnail) return false;
     if (searchQuery) {
       const hay = [e.name, e.game, e.type, getEffectImportSource(e), ...(e.tags || [])].join(' ').toLowerCase();
       const terms = searchQuery.split(/\s+/).map(token => token.trim()).filter(Boolean);
@@ -639,6 +663,8 @@ function showSidePreview(effect) {
   downloadButton.textContent = sourceDownload?.kind === 'package' ? 'Download Unity Package' : 'Download file';
   downloadButton.onclick = () => runDownload(downloadButton, sourceDownload);
   sendUnityButton.onclick = () => regenerateUnityPreview(effect, galleryAssetSource);
+  sendUnityButton.dataset.effectId = effect.id;
+  window.refreshPreviewRegenerationButtons();
   document.dispatchEvent(new CustomEvent('effect-ready', { detail: { effect, source: galleryAssetSource } }));
 
   document.getElementById('side-preview-open').onclick = () => openViewer(effect.id);

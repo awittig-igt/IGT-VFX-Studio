@@ -173,8 +173,10 @@ function fillFiles(e) {
   });
 
   list.querySelectorAll('[data-send-index]').forEach(button => {
+    button.dataset.effectId = e.id;
     button.addEventListener('click', () => regenerateUnityPreview(currentEffect, currentAssetSource));
   });
+  window.refreshPreviewRegenerationButtons();
 }
 // ── Info tabs ─────────────────────────────────────────────────────────────
 function initTabs() {

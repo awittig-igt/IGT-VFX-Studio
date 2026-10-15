@@ -7,7 +7,7 @@ const source = fs.readFileSync(path.join(__dirname, '../Tools~/webapp/js/preview
 
 function setup(states, saved) {
   const messages = [], calls = [], events = [], listeners = {}, nodes = {};
-  const button = { disabled: false };
+  const button = { disabled: false, dataset: {} };
   const panel = {
     classList: { toggle() {} }, setAttribute() {},
     querySelector(selector) {
@@ -82,4 +82,20 @@ test('embedded side viewers do not duplicate the job status panel', () => {
   s.context.location.search = '?embed=1';
   s.listeners.DOMContentLoaded();
   assert.equal(s.calls.length, 0);
+});
+
+test('switching cards keeps regeneration disabled with an explanation until completion', async () => {
+  const s = setup([{ state: 'complete', progress: 100 }]);
+  s.button.dataset.effectId = 'effect-1';
+  const pending = s.context.window.regenerateUnityPreview({ id: 'effect-1' }, 'local');
+  assert.equal(s.button.disabled, true);
+  assert.equal(s.button.textContent, 'Generating Unity Preview…');
+  s.button.dataset.effectId = 'effect-2';
+  s.context.window.refreshPreviewRegenerationButtons();
+  assert.equal(s.button.disabled, true);
+  assert.equal(s.button.textContent, 'Another effect is currently generating');
+  assert.equal(s.button.title, 'Another effect is currently generating');
+  await pending;
+  assert.equal(s.button.disabled, false);
+  assert.equal(s.button.textContent, 'Regenerate Unity Preview');
 });

@@ -341,6 +341,56 @@ function Find-UnityPackageForAsset($assetPath) {
     return $null
 }
 
+function Clear-LocalEffectLibrary {
+    param([string]$LibraryPath)
+    $root = [IO.Path]::GetFullPath($LibraryPath).TrimEnd('\')
+    $prefix = $root + '\'
+    $manifestPath = Join-Path $root 'manifest.json'
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $targets = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($effect in @($manifest.effects)) {
+        foreach ($relative in @($effect.files.main, $effect.files.package, $effect.files.thumbnail)) {
+            if (-not $relative -or $relative -match '^https?://') { continue }
+            $candidate = [IO.Path]::GetFullPath((Join-Path $root $relative))
+            if (-not $candidate.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -or $candidate -eq $manifestPath) {
+                throw 'A library entry points outside the local library or at its manifest. No files were deleted.'
+            }
+            [void]$targets.Add($candidate)
+        }
+    }
+    # Include superseded GIFs and orphaned packages in the generated flat folders.
+    foreach ($folder in @('packages', 'thumbnails')) {
+        $directory = Join-Path $root $folder
+        if (Test-Path -LiteralPath $directory -PathType Container) {
+            if ((Get-Item -LiteralPath $directory).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked library folders cannot be cleared.' }
+            Get-ChildItem -LiteralPath $directory -File | ForEach-Object { [void]$targets.Add($_.FullName) }
+        }
+    }
+    # Validate every target and ancestor before starting any deletion.
+    foreach ($target in $targets) {
+        $cursor = $target
+        while ($cursor -and $cursor.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+            if ((Test-Path -LiteralPath $cursor) -and ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw 'Linked library files or folders cannot be cleared.'
+            }
+            $cursor = Split-Path -Parent $cursor
+        }
+    }
+    $removed = 0
+    foreach ($target in $targets) {
+        if (Test-Path -LiteralPath $target -PathType Leaf) {
+            Remove-Item -LiteralPath $target -Force -ErrorAction Stop
+            $removed++
+        }
+    }
+    $count = @($manifest.effects).Count
+    $manifest.effects = @()
+    $manifest.generatedAt = [DateTime]::UtcNow.ToString('o')
+    [IO.File]::WriteAllText($manifestPath + '.tmp', ($manifest | ConvertTo-Json -Depth 30), [Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath ($manifestPath + '.tmp') -Destination $manifestPath -Force
+    return @{ ok = $true; deleted = $count; removedFiles = $removed }
+}
+
 function Start-PackageJob($packagePath) {
     if (-not $UnityProjectPath) { throw 'Unity Project Path is not configured.' }
     if (-not (Test-Path -LiteralPath $UnityProjectPath)) { throw "Unity project not found: $UnityProjectPath" }
@@ -764,6 +814,23 @@ try {
                 }
                 Send-Json $res @{ ok = $true; files = $saved; localFolder = $LocalFolder }
                 Write-Host "  API  POST /api/save-effects  ($saved files)" -ForegroundColor Green
+            }
+
+            # POST /api/delete-effect
+            elseif ($method -eq 'POST' -and $rawPath -eq '/api/delete-all-local') {
+                $busy = $false
+                foreach ($statusPath in @($projectJobStatusPath, $packageJobStatusPath)) {
+                    if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+                        $job = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
+                        if ($job.state -in @('queued', 'running')) { $busy = $true }
+                    }
+                }
+                if ($busy) {
+                    Send-Json $res @{ ok = $false; error = 'Wait for the current Unity generation or import to finish before deleting the local library.' } 409
+                } else {
+                    $result = Clear-LocalEffectLibrary $LocalFolder
+                    Send-Json $res $result
+                }
             }
 
             # POST /api/delete-effect
