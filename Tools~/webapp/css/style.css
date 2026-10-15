@@ -11,6 +11,7 @@
   --text-muted:  #777;
   --text-dim:    #aaa;
   --accent:      #7c3aed;
+  --accent-light: #a78bfa;
   --accent-glow: rgba(124,58,237,.35);
   --radius:      10px;
   --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -456,6 +457,10 @@ main {
   transform: translateY(-3px);
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), 0 8px 24px rgba(0,0,0,.4);
+}
+.effect-card:not(.selected):hover {
+  border-color: var(--accent-light);
+  box-shadow: 0 0 0 1px var(--accent-light), 0 8px 24px rgba(0,0,0,.4);
 }
 .effect-card:focus-visible {
   outline: 2px solid var(--accent);

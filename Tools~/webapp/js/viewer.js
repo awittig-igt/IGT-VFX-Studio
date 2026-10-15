@@ -7,8 +7,6 @@ document.addEventListener('DOMContentLoaded', init);
 async function init() {
   const params = new URLSearchParams(location.search);
   const id = params.get('id');
-  const embedded = params.get('embed') === '1';
-  if (embedded) document.body.classList.add('embedded');
   if (!id) { showError('No effect ID in URL.'); return; }
 
   // Try GitHub manifest first, then fall back to sessionStorage local preview
