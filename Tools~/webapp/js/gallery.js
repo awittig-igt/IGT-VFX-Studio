@@ -418,7 +418,7 @@ async function loadGallery() {
 
   allEffects = manifest.effects || [];
   galleryAssetSource = isLocal ? 'local' : 'github';
-  if (isLocal && banner) banner.classList.remove('hidden');
+  if (isLocal && banner && !isLocalPreviewDismissed()) banner.classList.remove('hidden');
   updateAssistantStatus('Ready');
 
   // Build game filter

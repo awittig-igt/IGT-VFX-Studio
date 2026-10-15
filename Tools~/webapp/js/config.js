@@ -40,3 +40,16 @@ function getLocalManifest() {
 function clearLocalManifest() {
   try { localStorage.removeItem(_localKey()); } catch {}
 }
+
+// Dismiss the notice without clearing effects or reloading the gallery.
+let localPreviewDismissed = false;
+function isLocalPreviewDismissed() {
+  if (localPreviewDismissed) return true;
+  try { return sessionStorage.getItem('findfx-preview-dismissed:' + _localKey()) === '1'; }
+  catch { return false; }
+}
+function dismissLocalPreview() {
+  localPreviewDismissed = true;
+  try { sessionStorage.setItem('findfx-preview-dismissed:' + _localKey(), '1'); } catch {}
+  document.getElementById('local-preview-banner')?.classList.add('hidden');
+}

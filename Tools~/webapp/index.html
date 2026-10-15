@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Effects Extractor Library</title>
+  <title>FindFX Library</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -22,14 +22,14 @@
   <div id="local-preview-banner" class="local-banner hidden">
     <span>⚡ <strong>Local preview</strong> — these effects are stored in this browser tab only.</span>
     <span>To save permanently: unzip the downloaded file into your repo, then <code>git add . &amp;&amp; git push</code>.</span>
-    <button class="local-banner-clear" onclick="clearLocalManifest();location.reload()" title="Clear local preview">Clear ×</button>
+    <button class="local-banner-clear" type="button" onclick="dismissLocalPreview()" title="Dismiss local preview message" aria-label="Dismiss local preview message">Clear ×</button>
   </div>
 
   <header>
     <div class="header-inner">
       <div class="logo">
         <span class="logo-icon" aria-hidden="true">✦</span>
-        <span class="logo-text">Effects Extractor Library</span>
+        <span class="logo-text">FindFX Library</span>
       </div>
       <div class="header-controls">
         <input type="search" id="search" placeholder="Search effects, tags, games…" autocomplete="off" spellcheck="false">
@@ -523,12 +523,12 @@
     </div>
   </div>
 
-  <script src="js/config.js"></script>
+  <script src="js/config.js?v=preview-dismiss-1"></script>
   <script src="js/github-api.js"></script>
   <!-- JSZip for client-side ZIP generation (Download ZIP feature) -->
   <script async src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="js/project-manager.js"></script>
   <script src="js/package-importer.js"></script>
-  <script src="js/gallery.js"></script>
+  <script src="js/gallery.js?v=preview-dismiss-1"></script>
 </body>
 </html>
