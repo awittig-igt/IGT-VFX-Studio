@@ -37,13 +37,15 @@ The bundled PowerShell server opens a separate local browser gallery. Unity 6000
 
 The library persists at the chosen folder (default `%LOCALAPPDATA%\FindFX\Library`). The server reuses a compatible existing instance or finds another free port. Only one preview job runs per server. Switching tools or closing VFXStudio does not stop the launcher or preview job. The gallery shows progress and errors; the Unity panel provides the launch log path. The server continues after Unity closes; stop its specific PowerShell process when finished.
 
-Runtime logs live under `%TEMP%\FindFX_<run-id>` and `%TEMP%\EffectsExtractorProjectJob_<job-id>`. Disposable preview projects use `%TEMP%\FXP_<id>` and are cleaned up by the worker.
+Runtime logs live under `%TEMP%\FindFX_<run-id>` and `%TEMP%\EffectsExtractorProjectJob_<job-id>`. Disposable preview projects use `%TEMP%\FXP_<id>` and are cleaned up by the worker. If Windows temporarily blocks a Package Manager cache rename (`EPERM`), the import retries the same preview project up to three times after 2, 4, and 8 seconds, preserving completed package installations. Earlier attempt logs are retained beside the main import log. Other import errors fail immediately.
 
 ## Build and validate
 
 The checked-in `Tools~` runtime supports both Git and local package installation. Build a standalone release with `powershell.exe -NoProfile -File .\build-package.ps1`; install `outputs\com.viewfx.editor-0.3.0.tgz` through Package Manager's **Install package from tarball**.
 
 Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tests~\findfx.tests.ps1` to verify package compilation, scene scope, prefab overrides, source preservation, scan-type filtering, and seven published particle/VFX/shader packages with visible PNG previews. The test uses Unity 6000.3.15f1 and a disposable source project held locked during preview generation.
+
+Run `powershell.exe -NoProfile -File .\Tests~\PackageCacheRecovery.tests.ps1` to verify package-cache retry recovery and error handling without launching Unity.
 
 The FindFX runtime was incorporated from EffectsExtractor. When changing the exporter, also update `Tools~/extractor/unity-tools/ParticlePackageExporterV2.cs`, which is injected into disposable automation projects. Keep runtime scripts, gallery files, capture scripts, and template settings together when updating that workflow.
 

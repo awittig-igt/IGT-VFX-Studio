@@ -69,12 +69,34 @@ function Find-UnityEditor {
 }
 
 function Invoke-ExtractionUnity {
-    param([string]$EditorPath, [string[]]$Arguments, [string]$LogPath)
-    Write-ExtractionLog ("Launching: `"$EditorPath`" " + ($Arguments -join ' '))
-    Write-ExtractionLog "Unity log: $LogPath"
-    $process = Invoke-UnityEditorProcess -EditorPath $EditorPath -Arguments $Arguments
-    Write-ExtractionLog "Unity process $($process.Id) exited with code $($process.ExitCode)."
-    return $process
+    param([string]$EditorPath, [string[]]$Arguments, [string]$LogPath,
+        [switch]$RetryPackageCacheRename)
+
+    $attemptLimit = if ($RetryPackageCacheRename) { 4 } else { 1 }
+    for ($attempt = 1; $attempt -le $attemptLimit; $attempt++) {
+        Write-ExtractionLog ("Launching: `"$EditorPath`" " + ($Arguments -join ' '))
+        Write-ExtractionLog "Unity log: $LogPath (attempt $attempt of $attemptLimit)"
+        $process = Invoke-UnityEditorProcess -EditorPath $EditorPath -Arguments $Arguments
+        Write-ExtractionLog "Unity process $($process.Id) exited with code $($process.ExitCode)."
+        if ($process.ExitCode -eq 0 -or $attempt -eq $attemptLimit) { return $process }
+
+        $log = if (Test-Path -LiteralPath $LogPath -PathType Leaf) {
+            [IO.File]::ReadAllText($LogPath)
+        } else { '' }
+        if ($log -notmatch '(?im)EPERM:\s*operation not permitted,\s*rename[^\r\n]*[\\/]Library[\\/]PackageCache[\\/]') {
+            return $process
+        }
+
+        # Keep installed packages and retry the same disposable project after file locks settle.
+        # Restarting with a fresh project would discard the successful package installations.
+        $historyPath = Join-Path (Split-Path -Parent $LogPath) (
+            [IO.Path]::GetFileNameWithoutExtension($LogPath) + "-attempt-$attempt.log")
+        Copy-Item -LiteralPath $LogPath -Destination $historyPath -Force
+        $process.Dispose()
+        $delaySeconds = [int][Math]::Pow(2, $attempt)
+        Write-ExtractionLog "Package-cache rename was blocked. Retrying the same preview project in $delaySeconds seconds; failed attempt saved to $historyPath."
+        Start-Sleep -Seconds $delaySeconds
+    }
 }
 
 function Assert-ProjectAvailable {
@@ -444,7 +466,7 @@ try {
         '-importPackage', ('"{0}"' -f $previewPackagePath),
         '-logFile', ('"{0}"' -f $importLog)
     )
-    $importProcess = Invoke-ExtractionUnity $previewUnity $importArguments $importLog
+    $importProcess = Invoke-ExtractionUnity $previewUnity $importArguments $importLog -RetryPackageCacheRename
     if ($importProcess.ExitCode -ne 0) {
         throw "Unity preview import failed (exit $($importProcess.ExitCode)). $(Get-LogTail $importLog)"
     }

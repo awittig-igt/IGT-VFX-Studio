@@ -79,8 +79,9 @@ try {
         -PreExportedPath (Join-Path $exports 'packages') -LocalFolder $library -Port $Port -NoBrowser
     if ($LASTEXITCODE -ne 0) { throw 'Automatic FindFX server launch failed.' }
     $config = Invoke-RestMethod "http://localhost:$Port/api/config"
-    if (-not $config.capabilities.findFX -or -not $config.capabilities.multiEffectPackages) {
-        throw 'Server did not advertise particle/VFX/shader package support.'
+    if (-not $config.capabilities.findFX -or -not $config.capabilities.multiEffectPackages -or
+        -not $config.capabilities.packageCacheRecovery) {
+        throw 'Server did not advertise effect package support and package-cache recovery.'
     }
     # The launcher logs the server PID so cleanup only stops this test's own process.
     $serverPidPath = Join-Path $exports 'server.pid'

@@ -522,6 +522,7 @@ try {
                         separateSourceAndPreview = $true
                         sanitizedParticlePackages = $true
                         multiEffectPackages = $true
+                        packageCacheRecovery = $true
                         disposablePreviewWorkspace = $true
                     }
                     localFolder = $LocalFolder
@@ -595,6 +596,7 @@ try {
                         separateSourceAndPreview = $true
                         sanitizedParticlePackages = $true
                         multiEffectPackages = $true
+                        packageCacheRecovery = $true
                         disposablePreviewWorkspace = $true
                     }
                     localFolder = $LocalFolder

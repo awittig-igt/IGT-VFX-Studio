@@ -39,7 +39,7 @@ try {
             $config = $null
         }
 
-        if ($config -and $config.capabilities.findFX -and $config.capabilities.multiEffectPackages -and
+        if ($config -and $config.capabilities.findFX -and $config.capabilities.multiEffectPackages -and $config.capabilities.packageCacheRecovery -and
             ([IO.Path]::GetFullPath([string]$config.localFolder).TrimEnd('\') -eq $LocalFolder.TrimEnd('\'))) {
             $reusingExistingServer = $true
             Write-Host "Reusing existing FindFX server on port $Port."
@@ -64,7 +64,7 @@ try {
                 try {
                     $tryUrl = "http://localhost:$tryPort"
                     $tryConfig = Invoke-RestMethod "$tryUrl/api/config" -TimeoutSec 2
-                    if ($tryConfig -and $tryConfig.capabilities.findFX -and $tryConfig.capabilities.multiEffectPackages -and
+                    if ($tryConfig -and $tryConfig.capabilities.findFX -and $tryConfig.capabilities.multiEffectPackages -and $tryConfig.capabilities.packageCacheRecovery -and
                         ([IO.Path]::GetFullPath([string]$tryConfig.localFolder).TrimEnd('\') -eq $LocalFolder.TrimEnd('\'))) {
                         $Port = $tryPort
                         $baseUrl = $tryUrl
@@ -118,7 +118,7 @@ try {
                 Start-Sleep -Milliseconds 500
             }
         }
-        if (-not $config -or -not $config.capabilities.findFX -or -not $config.capabilities.multiEffectPackages) {
+        if (-not $config -or -not $config.capabilities.findFX -or -not $config.capabilities.multiEffectPackages -or -not $config.capabilities.packageCacheRecovery) {
             throw "FindFX server did not become responsive within 60 seconds. See $serverLog."
         }
     }
