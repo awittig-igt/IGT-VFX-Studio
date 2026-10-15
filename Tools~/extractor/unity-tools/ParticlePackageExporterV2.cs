@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -25,7 +28,8 @@ namespace EffectsExtractor.Editor
         [Serializable]
         private sealed class ExportManifest
         {
-            public int formatVersion = 4;
+            public int formatVersion = 5;
+            public int duplicateCount;
             public bool sanitized = true;
             public string generatedAt;
             public string unityVersion = Application.unityVersion;
@@ -39,6 +43,10 @@ namespace EffectsExtractor.Editor
         private sealed class ExportEntry
         {
             public string name;
+            public string contentHash;
+            public List<string> sourcePaths = new List<string>();
+            public List<string> sourceNames = new List<string>();
+            public int instanceCount;
             public string effectType = "particle";
             public string sourceKind;
             public string sourcePath;
@@ -76,6 +84,7 @@ namespace EffectsExtractor.Editor
             public readonly ExportManifest manifest = new ExportManifest();
             public readonly HashSet<string> allDependencies =
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, ExportEntry> distinctEffects = new Dictionary<string, ExportEntry>();
 
             public ExportSession(string outputFolder)
             {
@@ -185,6 +194,19 @@ namespace EffectsExtractor.Editor
 
                 ValidateDependencyClosure(sanitized.assetPath,
                     sourceKind == "asset" ? string.Empty : sourcePath, assetDependencies);
+                var contentHash = GetContentHash(sanitized.assetPath, effectType);
+                if (distinctEffects.TryGetValue(contentHash, out var existing))
+                {
+                    existing.instanceCount++;
+                    if (!existing.sourcePaths.Contains(sourcePath)) existing.sourcePaths.Add(sourcePath);
+                    if (!existing.sourceNames.Contains(displayName)) existing.sourceNames.Add(displayName);
+                    manifest.duplicateCount++;
+                    foreach (var warning in sanitized.warnings)
+                        manifest.warnings.Add(displayName + ": " + warning);
+                    if (sanitized.assetPath != existing.captureAssetPath)
+                        AssetDatabase.DeleteAsset(sanitized.assetPath);
+                    return false;
+                }
                 foreach (var dependency in assetDependencies)
                     allDependencies.Add(dependency);
 
@@ -194,9 +216,13 @@ namespace EffectsExtractor.Editor
                     MakeSafeFileName(displayName) + "-" + suffix + ".unitypackage");
                 AssetDatabase.ExportPackage(assetDependencies, packagePath, ExportPackageOptions.Default);
 
-                manifest.exports.Add(new ExportEntry
+                var entry = new ExportEntry
                 {
                     name = displayName,
+                    contentHash = contentHash,
+                    sourcePaths = new List<string> { sourcePath },
+                    sourceNames = new List<string> { displayName },
+                    instanceCount = 1,
                     effectType = effectType,
                     sourceKind = sourceKind,
                     sourcePath = sourcePath,
@@ -214,7 +240,9 @@ namespace EffectsExtractor.Editor
                     removedGameObjectCount = sanitized.removedGameObjectCount,
                     dependencies = assetDependencies,
                     warnings = sanitized.warnings.ToArray()
-                });
+                };
+                manifest.exports.Add(entry);
+                distinctEffects.Add(contentHash, entry);
 
                 foreach (var warning in sanitized.warnings)
                     manifest.warnings.Add(displayName + ": " + warning);
@@ -242,6 +270,50 @@ namespace EffectsExtractor.Editor
                     JsonUtility.ToJson(manifest, true),
                     new System.Text.UTF8Encoding(false));
             }
+        }
+
+        // Hash the sanitized hierarchy, not its source location or Unity's
+        // generated IDs. Keep all serialized settings and asset references.
+        private static string GetContentHash(string prefabPath, string effectType)
+        {
+            var root = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            var objects = new List<UnityEngine.Object>();
+            foreach (var transform in root.GetComponentsInChildren<Transform>(true))
+            {
+                objects.Add(transform.gameObject);
+                objects.AddRange(transform.gameObject.GetComponents<Component>());
+            }
+            var references = new Dictionary<int, string> { [0] = "null" };
+            for (var i = 0; i < objects.Count; i++)
+                references[objects[i].GetInstanceID()] = "local:" + i;
+
+            var text = new StringBuilder(effectType);
+            foreach (var obj in objects)
+            {
+                text.Append('\n').Append(obj.GetType().FullName).Append('\n');
+                var json = EditorJsonUtility.ToJson(obj);
+                json = Regex.Replace(json, "\"instanceID\"\\s*:\\s*(-?\\d+)", match =>
+                {
+                    var id = int.Parse(match.Groups[1].Value);
+                    if (!references.TryGetValue(id, out var reference))
+                    {
+                        var target = EditorUtility.InstanceIDToObject(id);
+                        reference = target != null && AssetDatabase.TryGetGUIDAndLocalFileIdentifier(target, out string guid, out long fileId)
+                            ? "asset:" + guid + ":" + fileId
+                            : "external:" + id;
+                        references[id] = reference;
+                    }
+                    return "\"instanceID\":\"" + reference + "\"";
+                });
+                // Only GameObject labels are cosmetic. Keep names inside VFX
+                // property sheets, which identify exposed graph parameters.
+                if (obj is GameObject)
+                    json = Regex.Replace(json, "\"m_Name\"\\s*:\\s*\"(?:\\\\.|[^\"\\\\])*\"", "\"m_Name\":\"OBJECT\"");
+                text.Append(json);
+            }
+            using (var hash = SHA256.Create())
+                return BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(text.ToString())))
+                    .Replace("-", "").ToLowerInvariant();
         }
 
 
@@ -362,7 +434,8 @@ namespace EffectsExtractor.Editor
                 session.ExportPreviewPackage();
                 session.SaveManifest();
                 Debug.Log("[FindFX] Exported " + session.manifest.exports.Count +
-                    " effects. " + session.manifest.warnings.Count + " warning(s).");
+                    " distinct effects; skipped " + session.manifest.duplicateCount +
+                    " repeated instances. " + session.manifest.warnings.Count + " warning(s).");
             }
             finally
             {

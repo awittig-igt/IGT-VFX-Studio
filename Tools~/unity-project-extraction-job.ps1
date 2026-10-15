@@ -261,6 +261,14 @@ function Publish-Extraction {
         } else {
             [string]$export.sourcePrefabAssetPath
         }
+        # Replace older per-instance gallery rows represented by this distinct
+        # effect. Other projects and source paths outside this scan are kept.
+        $sourcePaths = @($export.sourcePaths | Where-Object { $_ })
+        if (-not $sourcePaths.Count) { $sourcePaths = @($sourceAssetPath) }
+        $effects = @($effects | Where-Object {
+            -not ($_.importSource -eq 'project-scan' -and $_.sourceProjectPath -eq $SourceProjectPath -and
+                $_.type -eq $export.effectType -and $_.originalPath -in $sourcePaths)
+        })
         $effectType = if ($export.effectType) { [string]$export.effectType } else { 'particle' }
         $identityPath = if ($effectType -eq 'particle') { $sourceAssetPath } else { $sourceAssetPath + '::' + $effectType }
         $id = Get-StableEffectId $GameName $identityPath $export.name
@@ -292,6 +300,10 @@ function Publish-Extraction {
             sanitized = [bool]$export.sanitized
             sourceKind = $export.sourceKind
             sourceHierarchy = $export.sourceHierarchy
+            contentHash = $export.contentHash
+            instanceCount = $export.instanceCount
+            sourcePaths = $sourcePaths
+            sourceNames = @($export.sourceNames)
         }
         if ($capture -and $capture.metadata) {
             foreach ($property in $capture.metadata.PSObject.Properties) {

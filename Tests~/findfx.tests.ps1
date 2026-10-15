@@ -102,12 +102,13 @@ try {
         Start-Sleep -Seconds 2
         $status = Invoke-RestMethod "http://localhost:$Port/api/project-extraction-job"
     } while ($status.state -in @('queued', 'running') -and [DateTime]::UtcNow -lt $deadline)
-    if ($status.state -ne 'complete' -or $status.exportCount -ne 7 -or $status.captureCount -ne 7 -or
-        $status.libraryCount -ne 7) {
+    $expectedCount = @((Get-Content -LiteralPath (Join-Path $exports 'packages\particle-package-manifest.json') -Raw | ConvertFrom-Json).exports).Count
+    if ($status.state -ne 'complete' -or $status.exportCount -ne $expectedCount -or $status.captureCount -ne $expectedCount -or
+        $status.libraryCount -ne $expectedCount) {
         throw "FindFX preview/publish failed: $($status | ConvertTo-Json -Depth 8)"
     }
     $manifest = Get-Content -LiteralPath (Join-Path $library 'manifest.json') -Raw | ConvertFrom-Json
-    if (@($manifest.effects).Count -ne 7) { throw 'Expected seven published effects.' }
+    if (@($manifest.effects).Count -ne $expectedCount) { throw 'Published effect count did not match distinct exports.' }
     foreach ($type in @('particle', 'vfx', 'shader')) {
         if (-not @($manifest.effects | Where-Object { $_.type -eq $type }).Count) {
             throw "Published library is missing effect type $type."
@@ -173,7 +174,7 @@ try {
     if (Test-Path -LiteralPath (Join-Path $source 'Assets\Editor\EffectsExtractorPhase2')) {
         throw 'Pre-exported workflow injected scripts into the open source project.'
     }
-    Write-Host 'PASS: Automatic server launch, locked source bypass, seven Unity previews and persistent gallery files.'
+    Write-Host 'PASS: Automatic server launch, locked source bypass, distinct Unity previews and persistent gallery files.'
     $passed = $true
 } catch {
     Write-Host "Test diagnostics retained at $root"

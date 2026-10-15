@@ -524,6 +524,7 @@ try {
                         multiEffectPackages = $true
                         packageCacheRecovery = $true
                         animatedGifPreviews = $true
+                        contentDeduplication = $true
                         disposablePreviewWorkspace = $true
                     }
                     localFolder = $LocalFolder
@@ -599,6 +600,7 @@ try {
                         multiEffectPackages = $true
                         packageCacheRecovery = $true
                         animatedGifPreviews = $true
+                        contentDeduplication = $true
                         disposablePreviewWorkspace = $true
                     }
                     localFolder = $LocalFolder

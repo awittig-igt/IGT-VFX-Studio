@@ -14,6 +14,7 @@ public static class FindFXIntegration
     private sealed class Manifest
     {
         public Entry[] exports;
+        public int duplicateCount;
     }
 
     [Serializable]
@@ -25,6 +26,8 @@ public static class FindFXIntegration
         public string packageFile;
         public string captureAssetPath;
         public int particleSystemCount;
+        public string contentHash;
+        public string[] sourcePaths;
     }
 
     public static void Run()
@@ -59,6 +62,9 @@ public static class FindFXIntegration
         var main = first.GetComponent<ParticleSystem>().main;
         var second = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
         second.name = "SecondInstance";
+        var duplicate = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
+        duplicate.name = "ZRepeatedCopy";
+        duplicate.transform.position = new Vector3(100, 200, 300);
         EditorSceneManager.SaveScene(scene, "Assets/TestScene.unity");
         var otherScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
         Particle("OtherSceneParticle", 1);
@@ -72,6 +78,8 @@ public static class FindFXIntegration
         ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "scene-only"), Array.Empty<string>());
         var sceneOnly = ReadManifest(Path.Combine(output, "scene-only"));
         Assert(sceneOnly.exports.Length == 3, "Scene-only must export three unique particle hierarchies.");
+        Assert(sceneOnly.duplicateCount == 1 && sceneOnly.exports.Any(entry => entry.sourcePaths.Length == 2),
+            "Repeated scene instances must share a package and retain both source paths.");
         Assert(sceneOnly.exports.All(entry => entry.sourceKind == "scene"), "Scene-only scanned prefab assets.");
         Assert(sceneOnly.exports.Any(entry => entry.name == "LooseInactive" && entry.particleSystemCount == 2),
             "Inactive particles and nested particle systems must be included without duplicate roots.");
@@ -84,9 +92,10 @@ public static class FindFXIntegration
         ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "packages"),
             new[] { "Assets/Curated", "Assets/Curated/Curated.prefab" });
         var curated = ReadManifest(Path.Combine(output, "packages"));
-        Assert(curated.exports.Length == 4, "Selected folders and prefabs must be deduplicated and narrowly scoped.");
-        Assert(curated.exports.Count(entry => entry.sourceKind == "prefab") == 1,
-            "Curated scope included unrelated prefab assets.");
+        Assert(curated.exports.Length == 3 && curated.duplicateCount == 2,
+            "Scene copies and their selected source prefab must share one package.");
+        Assert(curated.exports.Any(entry => entry.sourcePaths.Contains("Assets/Curated/Curated.prefab")),
+            "Selected prefab provenance was lost during deduplication.");
 
         ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "shaders-only"),
             new[] { "Assets/FindFXTestParticle.shader" }, false, false, true);
@@ -111,16 +120,17 @@ public static class FindFXIntegration
         ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "vfx-only"),
             new[] { "Assets/Curated/TestGraph.vfx" }, false, true, false);
         var graphs = ReadManifest(Path.Combine(output, "vfx-only"));
-        Assert(graphs.exports.Length == 2 && graphs.exports.All(entry => entry.effectType == "vfx"),
+        Assert(graphs.exports.Length >= 1 && graphs.exports.Length <= 2 && graphs.exports.All(entry => entry.effectType == "vfx") &&
+            graphs.exports.SelectMany(entry => entry.sourcePaths).Count() == 2,
             "VFX-only scan must include inactive scene VFX and selected graph assets without particles or shaders.");
         Assert(!vfxObject.activeSelf, "VFX source state was modified.");
 
         ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "packages"),
             new[] { "Assets/Curated", "Assets/FindFXTestParticle.shader" }, true, true, true);
         var mixed = ReadManifest(Path.Combine(output, "packages"));
-        Assert(mixed.exports.Length == 7 && mixed.exports.Count(entry => entry.effectType == "shader") == 1 &&
-            mixed.exports.Count(entry => entry.effectType == "vfx") == 2,
-            "Mixed scan must preserve effect types and include four particles, two VFX and one shader.");
+        Assert(mixed.exports.Length == 4 + graphs.exports.Length && mixed.exports.Count(entry => entry.effectType == "shader") == 1 &&
+            mixed.exports.Count(entry => entry.effectType == "particle") == 3,
+            "Mixed scan must preserve effect types while collapsing identical particles.");
         var allDisabledRejected = false;
         try {
             ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "disabled"),
@@ -139,6 +149,28 @@ public static class FindFXIntegration
         Assert(!AssetDatabase.IsValidFolder(ParticlePackageExporterV2.GeneratedPrefabFolder),
             "Failure must clean up generated prefabs.");
         EditorSceneManager.CloseScene(otherScene, true);
+        EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+        var baseline = Particle("Baseline", 1);
+        Particle("RenamedDuplicate", 1);
+        var rate = Particle("DifferentRate", 1).GetComponent<ParticleSystem>().emission;
+        rate.rateOverTime = 37;
+        Particle("DifferentScale", 1).transform.localScale = Vector3.one * 2;
+        var material = new Material(shader);
+        AssetDatabase.CreateAsset(material, "Assets/DifferentParticle.mat");
+        Particle("DifferentMaterial", 1).GetComponent<ParticleSystemRenderer>().sharedMaterial = material;
+        foreach (var offset in new[] { 1f, 2f })
+        {
+            var composite = Particle("Composite" + offset, 1);
+            var child = Particle("Child", 1);
+            child.transform.SetParent(composite.transform);
+            child.transform.localPosition = Vector3.up * offset;
+        }
+        ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "dedup"), Array.Empty<string>());
+        var dedup = ReadManifest(Path.Combine(output, "dedup"));
+        Assert(dedup.exports.Length == 6 && dedup.duplicateCount == 1 &&
+            dedup.exports.Select(entry => entry.contentHash).Distinct().Count() == 6,
+            "Deduplication must preserve different emission, scale, materials and child transforms.");
+        Assert(baseline != null && baseline.name == "Baseline", "Deduplication changed source objects.");
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         var emptyRejected = false;
         try {
