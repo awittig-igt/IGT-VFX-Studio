@@ -23,7 +23,7 @@ class ShaderPreview {
 
     // ── Renderer ──────────────────────────────────────────────────────────
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setSize(w, h);
+    this.renderer.setSize(w, h, false);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
     // ── Scene ─────────────────────────────────────────────────────────────
@@ -51,6 +51,8 @@ class ShaderPreview {
     this.mesh = new THREE.Mesh(geo, mat);
     this.scene.add(this.mesh);
 
+    this.viewport = new PreviewViewport(this);
+    this.resetCamera();
     this.clock   = new THREE.Clock();
     this.running = true;
     this._loop();
@@ -155,11 +157,10 @@ class ShaderPreview {
 
   // ── Public API ────────────────────────────────────────────────────────────
   resetCamera() {
-    this.camera.position.set(0, 0, 3);
-    this.camera.lookAt(0, 0, 0);
-    if (this.controls) { this.controls.target.set(0, 0, 0); this.controls.update(); }
+    this.viewport.frame(new THREE.Vector3(0, 0, 0), 1);
   }
   stop() {
+    this.viewport?.stop();
     this.running = false;
     if (this.rafId) cancelAnimationFrame(this.rafId);
     this.renderer.dispose();

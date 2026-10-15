@@ -649,7 +649,7 @@ async function runSendToUnity(button, packageItem) {
     if (!response.ok) throw new Error(`Could not fetch package: ${response.status}`);
     const blob = await response.blob();
     const filename = packageItem.filename || 'effect.unitypackage';
-    button.textContent = 'Sending…';
+    button.textContent = 'Starting preview…';
     const result = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload-package');
@@ -667,10 +667,10 @@ async function runSendToUnity(button, packageItem) {
       xhr.onerror = () => reject(new Error('Network error during upload'));
       xhr.send(blob);
     });
-    button.textContent = result?.warning ? 'Sent (no preview)' : 'Sent to Unity!';
+    button.textContent = result?.warning ? 'Saved (preview unavailable)' : 'Preview job started';
     await new Promise(r => setTimeout(r, 1500));
   } catch (err) {
-    button.textContent = 'Send failed';
+    button.textContent = 'Preview request failed';
     console.error('[effects-extractor] send to unity failed:', err);
     await new Promise(r => setTimeout(r, 1400));
   } finally {

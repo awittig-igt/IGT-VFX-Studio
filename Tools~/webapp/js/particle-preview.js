@@ -21,7 +21,7 @@ class ParticlePreview {
     canvas.height = h;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-    this.renderer.setSize(w, h);
+    this.renderer.setSize(w, h, false);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
     this.scene = new THREE.Scene();
@@ -130,6 +130,12 @@ class ParticlePreview {
     const rate        = (m.emission && m.emission.rateOverTime != null) ? m.emission.rateOverTime : 20;
     this.emitInterval = rate > 0 ? 1.0 / rate : 0.05;
 
+    this.viewport = new PreviewViewport(this);
+    this.frameElapsed = 0;
+    this.frameBounds = new THREE.Box3();
+    this.framePoint = new THREE.Vector3();
+    // Stop automatic framing when the user starts orbiting or zooming.
+    this.controls?.addEventListener('start', () => { this.frameElapsed = 2; });
     this.clock   = new THREE.Clock();
     this.running = true;
     this._loop();
@@ -199,6 +205,15 @@ class ParticlePreview {
     colAttr.needsUpdate = true;
     sizAttr.needsUpdate = true;
 
+    if (this.frameElapsed < 2) {
+      this.frameElapsed += dt;
+      for (let i = 0; i < this.MAX; i++) {
+        if (this.pAge[i] < 0) continue;
+        this.framePoint.fromArray(posAttr.array, i * 3);
+        this.frameBounds.expandByPoint(this.framePoint);
+      }
+      if (this.frameElapsed >= 2) this.resetCamera();
+    }
     if (this.controls) this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
@@ -289,11 +304,14 @@ class ParticlePreview {
 
   // ── Public API ────────────────────────────────────────────────────────────
   resetCamera() {
-    this.camera.position.set(0, 2.5, 9);
-    this.camera.lookAt(0, 2, 0);
-    if (this.controls) { this.controls.target.set(0, 2, 0); this.controls.update(); }
+    if (!this.frameBounds.isEmpty()) {
+      const sphere = this.frameBounds.getBoundingSphere(new THREE.Sphere());
+      const size = this._constVal(this.meta.startSize, 1);
+      this.viewport.frame(sphere.center, sphere.radius + Math.max(0.1, size));
+    }
   }
   stop() {
+    this.viewport?.stop();
     this.running = false;
     if (this.rafId) cancelAnimationFrame(this.rafId);
     this.renderer.dispose();

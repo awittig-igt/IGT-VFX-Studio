@@ -156,7 +156,7 @@ function fillFiles(e) {
         <span class="file-label">${esc(item.label)}</span>
         <span class="file-path" title="${escAttr(item.filename)}">${esc(item.filename)}</span>
         <div class="file-actions">
-          ${canSend ? `<button class="btn-secondary btn-sm" type="button" data-send-index="${index}">Send to Unity</button>` : ''}
+          ${canSend ? `<button class="btn-secondary btn-sm" type="button" data-send-index="${index}" title="Import this package into the Unity preview project and generate thumbnails">Generate Unity Preview</button>` : ''}
           <button class="btn-secondary btn-sm" type="button" data-download-index="${index}">Download</button>
         </div>
       </li>`;
@@ -190,7 +190,7 @@ function fillFiles(e) {
         const response = await _get(item.url, getConfig().token);
         if (!response.ok) throw new Error(`Could not fetch package: ${response.status}`);
         const blob = await response.blob();
-        button.textContent = 'Sending…';
+        button.textContent = 'Starting preview…';
         const result = await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open('POST', '/api/upload-package');
@@ -208,10 +208,10 @@ function fillFiles(e) {
           xhr.onerror = () => reject(new Error('Network error during upload'));
           xhr.send(blob);
         });
-        button.textContent = result?.warning ? 'Sent (no preview)' : 'Sent to Unity!';
+        button.textContent = result?.warning ? 'Saved (preview unavailable)' : 'Preview job started';
         await new Promise(r => setTimeout(r, 1500));
       } catch (err) {
-        button.textContent = 'Send failed';
+        button.textContent = 'Preview request failed';
         console.error('[effects-extractor] send to unity failed:', err);
         await new Promise(r => setTimeout(r, 1400));
       } finally {
@@ -297,6 +297,7 @@ function initPreviewTabs(e) {
     }
 
     loading.classList.remove('hidden');
+    canvas.classList.remove('hidden');
 
     try {
       if (e.type === 'particle') {
@@ -308,6 +309,7 @@ function initPreviewTabs(e) {
         canvas.classList.remove('hidden');
       }
     } catch (err) {
+      canvas.classList.add('hidden');
       showPlaceholder(`Preview error: ${err.message}`);
     } finally {
       loading.classList.add('hidden');
