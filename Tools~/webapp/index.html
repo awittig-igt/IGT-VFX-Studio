@@ -86,11 +86,18 @@
   </div>
 
   <section class="effect-assistant" aria-labelledby="assistant-title">
-    <div class="assistant-header">
+    <details class="assistant-disclosure">
+    <summary class="assistant-summary">
       <div>
-        <p class="assistant-eyebrow">Effect finder assistant</p>
-        <h1 id="assistant-title">Describe the effect you want to find.</h1>
+        <h1 id="assistant-title">Effect Finder Assistant</h1>
+        <p class="assistant-description">Describe the effect you want to find</p>
       </div>
+      <span class="assistant-summary-actions">
+        <span class="btn-primary assistant-start">lets chat</span>
+        <svg class="assistant-chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </span>
+    </summary>
+    <div class="assistant-header">
       <div class="assistant-header-actions">
         <span class="assistant-status" id="assistant-status">Ready</span>
         <button
@@ -126,6 +133,7 @@
       >
       <button id="assistant-send" class="btn-primary" type="submit">Ask</button>
     </form>
+    </details>
   </section>
 
   <main class='gallery-main'>

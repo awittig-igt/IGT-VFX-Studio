@@ -227,6 +227,21 @@ header {
   border: 1px solid var(--border);
   border-radius: 14px;
 }
+.assistant-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer; list-style: none; }
+.assistant-summary::-webkit-details-marker { display: none; }
+.assistant-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 6px; }
+.assistant-description { margin-top: .35rem; color: var(--text-dim); font-size: .84rem; }
+.assistant-summary-actions { display: flex; align-items: center; flex-shrink: 0; gap: .6rem; }
+.assistant-start { display: inline-block; }
+.assistant-chevron { opacity: 0; transition: opacity .15s, transform .15s; }
+.effect-assistant:hover .assistant-chevron,
+.effect-assistant:focus-within .assistant-chevron,
+.assistant-disclosure[open] .assistant-chevron { opacity: 1; }
+.assistant-disclosure[open] .assistant-chevron { transform: rotate(180deg); }
+.assistant-disclosure[open] .assistant-start { display: none; }
+.assistant-disclosure[open] .assistant-header { margin-top: .85rem; }
+@media (hover: none) { .assistant-chevron { opacity: 1; } }
+@media (max-width: 480px) { .assistant-summary { flex-wrap: wrap; } }
 .assistant-header {
   display: flex;
   align-items: flex-start;
