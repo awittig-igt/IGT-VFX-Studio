@@ -1,11 +1,13 @@
 param(
     [Parameter(Mandatory = $true)][string]$RuntimePath,
     [Parameter(Mandatory = $true)][string]$SourceProjectPath,
-    [Parameter(Mandatory = $true)][string]$PreExportedPath,
+    [string]$PreExportedPath = "",
+    [string]$RunPath = "",
     [Parameter(Mandatory = $true)][string]$LocalFolder,
     [ValidateRange(1024, 65535)][int]$Port = 8080,
     [switch]$StrictPort,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$OpenOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,6 +28,17 @@ function Test-PortOccupied([int]$testPort) {
 try {
     $requestedPort = $Port
     $LocalFolder = [IO.Path]::GetFullPath($LocalFolder)
+    if (-not $OpenOnly -and -not $PreExportedPath) {
+        throw 'PreExportedPath is required when extracting effects.'
+    }
+    $runRoot = if ($RunPath) {
+        [IO.Path]::GetFullPath($RunPath)
+    } elseif ($PreExportedPath) {
+        Split-Path -Parent ([IO.Path]::GetFullPath($PreExportedPath))
+    } else {
+        Join-Path ([IO.Path]::GetTempPath()) ('FindFX_' + [Guid]::NewGuid().ToString('N'))
+    }
+    New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
     $baseUrl = "http://localhost:$Port"
     $config = $null
     $reusingExistingServer = $false
@@ -88,7 +101,6 @@ try {
 
     if (-not $reusingExistingServer) {
         # Package Manager caches may be read-only. Run all mutable server state outside the package.
-        $runRoot = Split-Path -Parent ([IO.Path]::GetFullPath($PreExportedPath))
         $workingRuntime = Join-Path $runRoot 'runtime'
         New-Item -ItemType Directory -Path $workingRuntime | Out-Null
         Copy-Item -Path (Join-Path $RuntimePath '*') -Destination $workingRuntime -Recurse
@@ -122,6 +134,11 @@ try {
             throw "FindFX server did not become responsive within 60 seconds. See $serverLog."
         }
     }
+    if ($OpenOnly) {
+        if (-not $NoBrowser) { Start-Process "$baseUrl/" }
+        Write-Host "FindFX webapp opened at $baseUrl/"
+        return
+    }
     $payload = @{
         sourceProjectPath = [IO.Path]::GetFullPath($SourceProjectPath)
         preExportedPath = [IO.Path]::GetFullPath($PreExportedPath)
@@ -129,7 +146,7 @@ try {
     } | ConvertTo-Json
     $job = Invoke-RestMethod "$baseUrl/api/findfx" -Method Post -ContentType 'application/json' -Body $payload -TimeoutSec 60
     if (-not $job.ok) { throw 'FindFX server did not accept the preview job.' }
-    $job.job.workerProcessId | Set-Content -LiteralPath (Join-Path (Split-Path -Parent $PreExportedPath) 'worker.pid') -Encoding ASCII
+    $job.job.workerProcessId | Set-Content -LiteralPath (Join-Path $runRoot 'worker.pid') -Encoding ASCII
     if (-not $NoBrowser) { Start-Process "$baseUrl/?findfx=1" }
     Write-Host "FindFX preview job $($job.job.jobId) started at $baseUrl/?findfx=1"
 } catch {

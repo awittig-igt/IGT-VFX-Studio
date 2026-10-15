@@ -99,17 +99,24 @@ namespace ViewFX.Editor
             using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode ||
                 EditorApplication.isCompiling || EditorApplication.isUpdating || launcher != null || Application.platform != RuntimePlatform.WindowsEditor))
             {
-                if (ViewFXWindow.CenteredButton("Extract and Preview"))
-                    Run();
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.FlexibleSpace();
+                    if (GUILayout.Button("Extract and Preview", GUILayout.Width(150), GUILayout.Height(36)))
+                        Run();
+                    if (GUILayout.Button("Open FindFX webapp", GUILayout.Width(150), GUILayout.Height(36)))
+                        Run(false);
+                    GUILayout.FlexibleSpace();
+                }
             }
             if (launcher != null)
-                EditorGUILayout.HelpBox("Starting the local gallery. Preview progress will appear in your browser.", MessageType.Info);
+                EditorGUILayout.HelpBox("Opening the local FindFX webapp...", MessageType.Info);
             if (!string.IsNullOrEmpty(launchLog))
                 EditorGUILayout.SelectableLabel("Launch log: " + launchLog, EditorStyles.textField,
                     GUILayout.Height(38));
         }
 
-        private static void Run()
+        private static void Run(bool extract = true)
         {
             try
             {
@@ -119,12 +126,12 @@ namespace ViewFX.Editor
                     throw new InvalidOperationException("Use a web app port between 1024 and 65535.");
                 if (string.IsNullOrWhiteSpace(libraryPath) || !Path.IsPathRooted(libraryPath))
                     throw new InvalidOperationException("Choose an absolute local library folder.");
-                var selection = includeSelection
+                var selection = extract && includeSelection
                     ? Selection.objects.Select(AssetDatabase.GetAssetPath).Distinct().ToArray()
                     : Array.Empty<string>();
-                if (includeSelection && (selection.Length == 0 || selection.Any(string.IsNullOrEmpty)))
+                if (extract && includeSelection && (selection.Length == 0 || selection.Any(string.IsNullOrEmpty)))
                     throw new InvalidOperationException("Select effect assets or folders in the Project window.");
-                if (!scanParticles && !scanVfx && !scanShaders)
+                if (extract && !scanParticles && !scanVfx && !scanShaders)
                     throw new InvalidOperationException("Enable at least one scan type in Advanced settings.");
                 var package = PackageInfo.FindForAssembly(typeof(FindFXPanel).Assembly);
                 if (package == null)
@@ -138,15 +145,17 @@ namespace ViewFX.Editor
                 var runFolder = Path.Combine(Path.GetTempPath(), "FindFX_" + Guid.NewGuid().ToString("N"));
                 var exports = Path.Combine(runFolder, "packages");
                 Directory.CreateDirectory(runFolder);
-                EffectsExtractor.Editor.ParticlePackageExporterV2.ExportActiveScene(
-                    exports, selection, scanParticles, scanVfx, scanShaders);
+                if (extract)
+                    EffectsExtractor.Editor.ParticlePackageExporterV2.ExportActiveScene(
+                        exports, selection, scanParticles, scanVfx, scanShaders);
                 EditorPrefs.SetString("FindFX.LibraryPath", libraryPath);
                 EditorPrefs.SetInt("FindFX.Port", port);
                 launchLog = Path.Combine(runFolder, "launch.log");
                 var command = "& { try { & " + QuotePowerShell(startScript) +
                     " -RuntimePath " + QuotePowerShell(runtime) +
                     " -SourceProjectPath " + QuotePowerShell(project) +
-                    " -PreExportedPath " + QuotePowerShell(exports) +
+                    " -RunPath " + QuotePowerShell(runFolder) +
+                    (extract ? " -PreExportedPath " + QuotePowerShell(exports) : " -OpenOnly") +
                     " -LocalFolder " + QuotePowerShell(Path.GetFullPath(libraryPath)) +
                     " -Port " + port +
                     " } catch { [Console]::Error.WriteLine($_); Write-Output ('FindFX launch failed: ' + $_); exit 1 } } *> " +
