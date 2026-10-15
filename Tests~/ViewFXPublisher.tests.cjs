@@ -5,7 +5,7 @@ const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
 
-function harness() {
+function harness({ config = {} } = {}) {
   const elements = new Map();
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
@@ -28,6 +28,7 @@ function harness() {
   let uploadStatus = 201, uploadResult = { id: 42 }, pollStatus = 'connected';
   const fetch = async (url, options = {}) => {
     calls.push({ url: String(url), options });
+    if (String(url) === '/api/config') return Response.json(config);
     if (String(url).includes('/api/publisher/')) assert.equal(options.credentials, 'omit');
     if (String(url).endsWith('/requests')) return Response.json({ id: 'test-request', pollToken: 'poll-secret', approvalUrl: 'http://localhost:5173/publisher/connect?request=test-request', expiresAt: new Date(Date.now() + 10000).toISOString() });
     if (String(url).endsWith('/poll')) return Response.json({ status: pollStatus, token: 'publisher-secret', user: { name: 'Test Publisher' } });
@@ -55,7 +56,7 @@ function harness() {
     ],
   };
   vm.runInNewContext(readFileSync(require('node:path').join(__dirname, '../Tools~/webapp/js/viewfx-publisher.js'), 'utf8'), context);
-  const ready = (overrides = {}) => document.listeners['effect-ready']({ detail: { source: 'local', effect: {
+  const ready = (overrides = {}, source = 'local') => document.listeners['effect-ready']({ detail: { source, effect: {
     id: 'fire', name: 'Fire', type: 'particle', tags: ['Magic'], files: { package: 'fire.unitypackage', thumbnail: 'fire.png' }, ...overrides,
   } } });
   return { element, ready, calls, uploads, sessionStorage,
@@ -120,11 +121,44 @@ test('insecure remote URLs and denied approvals do not produce upload access', a
   const h = harness(); h.ready(); await h.element('btn-publish-viewfx').fire('click');
   h.element('field-site').value = 'http://example.com';
   await h.element('publish-connect').fire('click');
-  assert.equal(h.calls.length, 0);
+  assert.equal(h.calls.filter(call => call.url !== '/api/config').length, 0);
   assert.match(h.element('publish-status').textContent, /HTTPS/);
   h.element('field-site').value = 'http://localhost:5173'; h.setPoll('denied');
   await h.element('publish-connect').fire('click');
   assert.match(h.element('publish-status').textContent, /denied/);
   assert.equal(h.element('publish-submit').disabled, true);
   assert.equal(h.sessionStorage.getItem('viewfx-publisher'), null);
+});
+
+test('Unity version is prefilled from the selected effect and stays editable', async () => {
+  const h = harness();
+  h.ready({ unityVersion: '6000.3.15f1', metadata: { unityVersion: '2022.3.62f1' } });
+  await h.element('btn-publish-viewfx').fire('click');
+  assert.equal(h.element('field-unityVersion').value, '6000.3.15f1');
+  assert.equal(h.calls.length, 0);
+  h.ready({ name: 'Second effect', metadata: { unityVersion: '2022.3.62f1' } });
+  await h.element('btn-publish-viewfx').fire('click');
+  assert.equal(h.element('field-name').value, 'Second effect');
+  assert.equal(h.element('field-unityVersion').value, '2022.3.62f1');
+  h.element('field-unityVersion').value = '2022.3.63f1';
+  await h.element('publish-connect').fire('click');
+  const request = h.calls.find(call => call.url.endsWith('/requests'));
+  assert.equal(JSON.parse(request.options.body).unityVersion, '2022.3.63f1');
+});
+
+test('legacy local effects use only the matching source project version', async () => {
+  const config = { sourceProjectPath: 'C:\\Games\\MyGame', sourceProjectValidation: { editorVersion: '2022.3.62f1' },
+    previewProjectValidation: { editorVersion: '6000.3.15f1' } };
+  for (const [effect, source, expected] of [
+    [{ sourceProjectPath: 'c:/games/mygame/' }, 'local', '2022.3.62f1'],
+    [{ game: 'MyGame', importSource: 'project-scan' }, 'local', '2022.3.62f1'],
+    [{ sourceProjectPath: 'C:/Games/Other', game: 'MyGame', importSource: 'project-scan' }, 'local', ''],
+    [{ game: 'Other', importSource: 'project-scan' }, 'local', ''],
+    [{ game: 'MyGame', importSource: 'manual-upload' }, 'local', ''],
+    [{ game: 'MyGame', importSource: 'project-scan' }, 'github', ''],
+  ]) {
+    const h = harness({ config }); h.ready(effect, source);
+    await h.element('btn-publish-viewfx').fire('click');
+    assert.equal(h.element('field-unityVersion').value, expected);
+  }
 });

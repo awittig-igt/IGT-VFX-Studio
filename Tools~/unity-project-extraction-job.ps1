@@ -221,6 +221,12 @@ function Get-LogTail {
 function Publish-Extraction {
     param([object]$ExportManifest, [object]$CaptureManifest)
 
+    # Use the source exporter version, never the disposable preview Editor's version.
+    $sourceUnityVersion = [string]$ExportManifest.unityVersion
+    if (-not $sourceUnityVersion) {
+        $sourceUnityVersion = Get-UnityProjectEditorVersion $SourceProjectPath
+    }
+
     $packagesFolder = Join-Path $LocalFolder 'packages'
     $thumbnailsFolder = Join-Path $LocalFolder 'thumbnails'
     New-Item -ItemType Directory -Force -Path $packagesFolder | Out-Null
@@ -299,6 +305,8 @@ function Publish-Extraction {
             type = $effectType
             game = $GameName
             importSource = 'project-scan'
+            unityVersion = $sourceUnityVersion
+            sourceProjectPath = $SourceProjectPath
             packageFile = $packageName
             originalPath = $sourceAssetPath
             files = [pscustomobject]@{

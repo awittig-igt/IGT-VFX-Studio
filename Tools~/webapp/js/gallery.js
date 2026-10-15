@@ -605,6 +605,7 @@ function showSidePreview(effect) {
   downloadButton.textContent = sourceDownload?.kind === 'package' ? 'Download Unity Package' : 'Download file';
   downloadButton.onclick = () => runDownload(downloadButton, sourceDownload);
   sendUnityButton.onclick = () => runSendToUnity(sendUnityButton, packageDownload);
+  document.dispatchEvent(new CustomEvent('effect-ready', { detail: { effect, source: galleryAssetSource } }));
 
   document.getElementById('side-preview-open').onclick = () => openViewer(effect.id);
   document.querySelectorAll('.effect-card').forEach(card => card.classList.remove('selected'));

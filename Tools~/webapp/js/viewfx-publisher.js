@@ -12,6 +12,26 @@
   const field = name => form.elements.namedItem(name);
   let effect, source, credential, pending, busy = false;
 
+  async function fillUnityVersion(selectedEffect, selectedSource) {
+    // Older local libraries predate per-effect versions. Only use the configured
+    // source project when its identity matches; the preview project's version is unrelated.
+    if (field('unityVersion').value || selectedSource !== 'local') return;
+    try {
+      const response = await fetch('/api/config', { signal: AbortSignal.timeout(5000) });
+      if (!response.ok) return;
+      const config = await response.json();
+      const normalize = path => String(path || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+      const project = normalize(config.sourceProjectPath);
+      const matches = selectedEffect.sourceProjectPath
+        ? normalize(selectedEffect.sourceProjectPath) === project
+        : selectedEffect.importSource === 'project-scan' && normalize(selectedEffect.game) === project.split('/').pop();
+      const version = config.sourceProjectValidation?.editorVersion;
+      if (project && matches && /^\d+\.\d+\.\d+f\d+$/.test(version || '') && effect === selectedEffect && !field('unityVersion').value) {
+        field('unityVersion').value = version;
+      }
+    } catch { /* Keep the version editable when the source project is unavailable. */ }
+  }
+
   function siteOrigin() {
     const url = new URL(field('site').value);
     const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
@@ -57,6 +77,7 @@
     try { credential = JSON.parse(sessionStorage.getItem('viewfx-publisher') || 'null'); } catch { credential = null; }
     refresh();
     dialog.showModal();
+    await fillUnityVersion(effect, source);
     if (credential?.site === field('site').value) {
       try { await api(credential.site, '/connection', { headers: { Authorization: `Bearer ${credential.token}` } }); }
       catch (error) { credential = null; sessionStorage.removeItem('viewfx-publisher'); status.textContent = error.message; }

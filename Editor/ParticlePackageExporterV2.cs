@@ -28,6 +28,7 @@ namespace EffectsExtractor.Editor
             public int formatVersion = 4;
             public bool sanitized = true;
             public string generatedAt;
+            public string unityVersion = Application.unityVersion;
             public string previewPackageFile;
             public int skippedPackageDependencyCount;
             public List<ExportEntry> exports = new List<ExportEntry>();
