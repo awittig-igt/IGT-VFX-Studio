@@ -13,6 +13,9 @@ namespace ViewFX.Editor
     internal static class FindFXPanel
     {
         private static bool includeSelection;
+        private static bool scanParticles = EditorPrefs.GetBool("FindFX.ScanParticles", true);
+        private static bool scanVfx = EditorPrefs.GetBool("FindFX.ScanVfx", true);
+        private static bool scanShaders = EditorPrefs.GetBool("FindFX.ScanShaders", true);
         private static bool advanced;
         private static int port = 8080;
         private static string libraryPath;
@@ -48,7 +51,7 @@ namespace ViewFX.Editor
         public static void Draw()
         {
             EditorGUILayout.HelpBox(
-                "Extract particles from the active scene, including inactive objects and prefab " +
+                "Extract particles, VFX Graph effects and shaders from the active scene, including inactive objects and prefab " +
                 "instance overrides. Other open scenes are not scanned.", MessageType.Info);
             libraryPath = EditorGUILayout.TextField("Local library folder", libraryPath);
             if (ViewFXWindow.CenteredButton("Browse library folder"))
@@ -57,15 +60,13 @@ namespace ViewFX.Editor
                 {
                     if (string.IsNullOrWhiteSpace(libraryPath) || !Path.IsPathRooted(libraryPath.Trim()))
                         throw new InvalidOperationException("Choose an absolute local library folder.");
-                    var initialFolder = Path.GetFullPath(libraryPath.Trim());
-                    // Unity falls back to Documents when the initial directory does not exist.
-                    Directory.CreateDirectory(initialFolder);
-                    var chosen = EditorUtility.OpenFolderPanel("FindFX library", initialFolder.Replace('\\', '/'), "");
-                    if (!string.IsNullOrEmpty(chosen))
+                    var folder = Path.GetFullPath(libraryPath.Trim());
+                    Directory.CreateDirectory(folder);
+                    Process.Start(new ProcessStartInfo
                     {
-                        libraryPath = chosen;
-                        EditorPrefs.SetString("FindFX.LibraryPath", libraryPath);
-                    }
+                        FileName = folder,
+                        UseShellExecute = true
+                    });
                 }
                 catch (Exception exception)
                 {
@@ -76,10 +77,20 @@ namespace ViewFX.Editor
             if (advanced)
             {
                 port = EditorGUILayout.IntField("Web app port", port);
-                includeSelection = EditorGUILayout.ToggleLeft("Include selected prefabs/folders", includeSelection);
+                EditorGUI.BeginChangeCheck();
+                scanParticles = EditorGUILayout.ToggleLeft("Scan particles", scanParticles);
+                scanVfx = EditorGUILayout.ToggleLeft("Scan VFX Graph effects", scanVfx);
+                scanShaders = EditorGUILayout.ToggleLeft("Scan shaders", scanShaders);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    EditorPrefs.SetBool("FindFX.ScanParticles", scanParticles);
+                    EditorPrefs.SetBool("FindFX.ScanVfx", scanVfx);
+                    EditorPrefs.SetBool("FindFX.ScanShaders", scanShaders);
+                }
+                includeSelection = EditorGUILayout.ToggleLeft("Include selected assets/folders", includeSelection);
                 if (includeSelection)
                     EditorGUILayout.HelpBox(
-                        "Select prefab assets or folders under Assets in the Project window. " +
+                        "Select prefabs, VFX Graph assets, shaders or folders under Assets in the Project window. " +
                         "Folders are searched recursively; unrelated assets are not scanned.", MessageType.Info);
             }
             EditorGUILayout.HelpBox(
@@ -112,7 +123,9 @@ namespace ViewFX.Editor
                     ? Selection.objects.Select(AssetDatabase.GetAssetPath).Distinct().ToArray()
                     : Array.Empty<string>();
                 if (includeSelection && (selection.Length == 0 || selection.Any(string.IsNullOrEmpty)))
-                    throw new InvalidOperationException("Select prefab assets or folders in the Project window.");
+                    throw new InvalidOperationException("Select effect assets or folders in the Project window.");
+                if (!scanParticles && !scanVfx && !scanShaders)
+                    throw new InvalidOperationException("Enable at least one scan type in Advanced settings.");
                 var package = PackageInfo.FindForAssembly(typeof(FindFXPanel).Assembly);
                 if (package == null)
                     throw new InvalidOperationException("Install the ViewFX companion through Unity Package Manager.");
@@ -125,7 +138,8 @@ namespace ViewFX.Editor
                 var runFolder = Path.Combine(Path.GetTempPath(), "FindFX_" + Guid.NewGuid().ToString("N"));
                 var exports = Path.Combine(runFolder, "packages");
                 Directory.CreateDirectory(runFolder);
-                EffectsExtractor.Editor.ParticlePackageExporterV2.ExportActiveScene(exports, selection);
+                EffectsExtractor.Editor.ParticlePackageExporterV2.ExportActiveScene(
+                    exports, selection, scanParticles, scanVfx, scanShaders);
                 EditorPrefs.SetString("FindFX.LibraryPath", libraryPath);
                 EditorPrefs.SetInt("FindFX.Port", port);
                 launchLog = Path.Combine(runFolder, "launch.log");

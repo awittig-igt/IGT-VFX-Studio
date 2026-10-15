@@ -20,6 +20,7 @@ public static class FindFXIntegration
     private sealed class Entry
     {
         public string name;
+        public string effectType;
         public string sourceKind;
         public string packageFile;
         public string captureAssetPath;
@@ -86,6 +87,46 @@ public static class FindFXIntegration
         Assert(curated.exports.Length == 4, "Selected folders and prefabs must be deduplicated and narrowly scoped.");
         Assert(curated.exports.Count(entry => entry.sourceKind == "prefab") == 1,
             "Curated scope included unrelated prefab assets.");
+
+        ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "shaders-only"),
+            new[] { "Assets/FindFXTestParticle.shader" }, false, false, true);
+        var shaders = ReadManifest(Path.Combine(output, "shaders-only"));
+        Assert(shaders.exports.Length == 1 && shaders.exports[0].effectType == "shader",
+            "Shader scan must deduplicate scene and selected shaders and exclude particles.");
+
+        var vfxPackage = UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages()
+            .First(item => item.name == "com.unity.visualeffectgraph");
+        var template = Directory.GetFiles(vfxPackage.resolvedPath, "*.vfx", SearchOption.AllDirectories)
+            .First(path => Path.GetFileName(path) == "02_Simple_Loop.vfx");
+        File.Copy(template, "Assets/Curated/TestGraph.vfx");
+        AssetDatabase.ImportAsset("Assets/Curated/TestGraph.vfx", ImportAssetOptions.ForceSynchronousImport);
+        var vfxType = AppDomain.CurrentDomain.GetAssemblies()
+            .Select(assembly => assembly.GetType("UnityEngine.VFX.VisualEffect"))
+            .First(type => type != null);
+        var vfxObject = new GameObject("SceneVfx");
+        var vfx = vfxObject.AddComponent(vfxType);
+        vfxType.GetProperty("visualEffectAsset").SetValue(vfx,
+            AssetDatabase.LoadMainAssetAtPath("Assets/Curated/TestGraph.vfx"));
+        vfxObject.SetActive(false);
+        ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "vfx-only"),
+            new[] { "Assets/Curated/TestGraph.vfx" }, false, true, false);
+        var graphs = ReadManifest(Path.Combine(output, "vfx-only"));
+        Assert(graphs.exports.Length == 2 && graphs.exports.All(entry => entry.effectType == "vfx"),
+            "VFX-only scan must include inactive scene VFX and selected graph assets without particles or shaders.");
+        Assert(!vfxObject.activeSelf, "VFX source state was modified.");
+
+        ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "packages"),
+            new[] { "Assets/Curated", "Assets/FindFXTestParticle.shader" }, true, true, true);
+        var mixed = ReadManifest(Path.Combine(output, "packages"));
+        Assert(mixed.exports.Length == 7 && mixed.exports.Count(entry => entry.effectType == "shader") == 1 &&
+            mixed.exports.Count(entry => entry.effectType == "vfx") == 2,
+            "Mixed scan must preserve effect types and include four particles, two VFX and one shader.");
+        var allDisabledRejected = false;
+        try {
+            ParticlePackageExporterV2.ExportActiveScene(Path.Combine(output, "disabled"),
+                Array.Empty<string>(), false, false, false);
+        } catch (InvalidOperationException) { allDisabledRejected = true; }
+        Assert(allDisabledRejected, "All scan types disabled must fail explicitly.");
 
         var invalidRejected = false;
         try {

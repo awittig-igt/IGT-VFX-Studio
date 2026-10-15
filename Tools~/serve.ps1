@@ -521,6 +521,7 @@ try {
                         projectExtractionStatus = $true
                         separateSourceAndPreview = $true
                         sanitizedParticlePackages = $true
+                        multiEffectPackages = $true
                         disposablePreviewWorkspace = $true
                     }
                     localFolder = $LocalFolder
@@ -593,6 +594,7 @@ try {
                         projectExtractionStatus = $true
                         separateSourceAndPreview = $true
                         sanitizedParticlePackages = $true
+                        multiEffectPackages = $true
                         disposablePreviewWorkspace = $true
                     }
                     localFolder = $LocalFolder

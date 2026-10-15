@@ -10,7 +10,7 @@ using UnityEngine.SceneManagement;
 namespace EffectsExtractor.Editor
 {
     /// <summary>
-    /// Creates disconnected, script-free particle prefabs before exporting packages.
+    /// Creates disconnected, script-free effect prefabs before exporting packages.
     /// Source prefabs are never exported directly.
     /// </summary>
     public static class ParticlePackageExporterV2
@@ -25,7 +25,7 @@ namespace EffectsExtractor.Editor
         [Serializable]
         private sealed class ExportManifest
         {
-            public int formatVersion = 3;
+            public int formatVersion = 4;
             public bool sanitized = true;
             public string generatedAt;
             public string previewPackageFile;
@@ -38,6 +38,7 @@ namespace EffectsExtractor.Editor
         private sealed class ExportEntry
         {
             public string name;
+            public string effectType = "particle";
             public string sourceKind;
             public string sourcePath;
             public string sourcePrefabAssetPath;
@@ -94,11 +95,50 @@ namespace EffectsExtractor.Editor
             public bool ExportSceneObject(
                 GameObject sourceRoot,
                 string scenePath,
-                string sourceHierarchy)
+                string sourceHierarchy,
+                string effectType = "particle")
             {
                 var sourcePath = scenePath + "::" + sourceHierarchy;
                 return ExportSource(sourceRoot, sourceRoot.name, "scene", sourcePath,
-                    string.Empty, sourceHierarchy, sourcePath);
+                    string.Empty, sourceHierarchy, sourcePath, effectType);
+            }
+
+            public bool ExportVfxPrefab(string path, GameObject prefab)
+            {
+                return ExportSource(prefab, prefab.name, "prefab", path, path, "", path, "vfx");
+            }
+
+            public bool ExportAsset(string path, string effectType)
+            {
+                var asset = AssetDatabase.LoadMainAssetAtPath(path);
+                var root = effectType == "shader"
+                    ? GameObject.CreatePrimitive(PrimitiveType.Sphere)
+                    : new GameObject();
+                try
+                {
+                    root.name = Path.GetFileNameWithoutExtension(path);
+                    if (effectType == "shader")
+                    {
+                        var shader = AssetDatabase.LoadAssetAtPath<Shader>(path);
+                        if (shader == null)
+                            throw new InvalidOperationException("Could not load shader: " + path);
+                        var materialPath = GeneratedPrefabFolder + "/" +
+                            GetAssetSuffix(path, 12) + ".mat";
+                        AssetDatabase.CreateAsset(new Material(shader), materialPath);
+                        root.GetComponent<Renderer>().sharedMaterial =
+                            AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+                    }
+                    else
+                    {
+                        var type = GetVisualEffectType();
+                        if (type == null || asset == null)
+                            throw new InvalidOperationException("VFX Graph support is unavailable: " + path);
+                        var effect = root.AddComponent(type);
+                        type.GetProperty("visualEffectAsset").SetValue(effect, asset);
+                    }
+                    return ExportSource(root, root.name, "asset", path, "", "", path, effectType);
+                }
+                finally { UnityEngine.Object.DestroyImmediate(root); }
             }
 
             private bool ExportSource(
@@ -108,9 +148,11 @@ namespace EffectsExtractor.Editor
                 string sourcePath,
                 string sourcePrefabAssetPath,
                 string sourceHierarchy,
-                string stableSourceKey)
+                string stableSourceKey,
+                string effectType = "particle")
             {
-                var sanitized = CreateSanitizedPrefab(sourceRoot, stableSourceKey, displayName);
+                var typedKey = effectType == "particle" ? stableSourceKey : stableSourceKey + "::" + effectType;
+                var sanitized = CreateSanitizedPrefab(sourceRoot, typedKey, displayName, effectType);
                 AssetDatabase.SaveAssets();
 
                 var allDependencyPaths = AssetDatabase
@@ -127,7 +169,7 @@ namespace EffectsExtractor.Editor
                 {
                     manifest.skippedPackageDependencyCount++;
                     var warning =
-                        "Skipped because its particle-only prefab depends on non-standard package asset(s): " +
+                        "Skipped because its sanitized effect prefab depends on non-standard package asset(s): " +
                         string.Join(", ", packageDependencies);
                     manifest.warnings.Add(displayName + ": " + warning);
                     Debug.LogWarning("[Effects Extractor] " + displayName + ": " + warning);
@@ -140,11 +182,12 @@ namespace EffectsExtractor.Editor
                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
 
-                ValidateDependencyClosure(sanitized.assetPath, sourcePath, assetDependencies);
+                ValidateDependencyClosure(sanitized.assetPath,
+                    sourceKind == "asset" ? string.Empty : sourcePath, assetDependencies);
                 foreach (var dependency in assetDependencies)
                     allDependencies.Add(dependency);
 
-                var suffix = GetAssetSuffix(stableSourceKey, 8);
+                var suffix = GetAssetSuffix(typedKey, 8);
                 var packagePath = Path.Combine(
                     outputFolder,
                     MakeSafeFileName(displayName) + "-" + suffix + ".unitypackage");
@@ -153,6 +196,7 @@ namespace EffectsExtractor.Editor
                 manifest.exports.Add(new ExportEntry
                 {
                     name = displayName,
+                    effectType = effectType,
                     sourceKind = sourceKind,
                     sourcePath = sourcePath,
                     sourcePrefabAssetPath = sourcePrefabAssetPath,
@@ -224,8 +268,11 @@ namespace EffectsExtractor.Editor
             ExportProject(output, Math.Max(0, limit), false);
         }
 
-        public static void ExportActiveScene(string output, string[] selectedAssetPaths)
+        public static void ExportActiveScene(string output, string[] selectedAssetPaths,
+            bool scanParticles = true, bool scanVfx = false, bool scanShaders = false)
         {
+            if (!scanParticles && !scanVfx && !scanShaders)
+                throw new InvalidOperationException("Enable at least one effect type to scan.");
             var scene = SceneManager.GetActiveScene();
             if (!scene.IsValid() || !scene.isLoaded)
                 throw new InvalidOperationException("FindFX requires a loaded active scene.");
@@ -242,7 +289,7 @@ namespace EffectsExtractor.Editor
             {
                 var sceneKey = string.IsNullOrEmpty(scene.path) ? "unsaved:" + scene.name : scene.path;
                 var roots = new HashSet<GameObject>();
-                foreach (var particle in scene.GetRootGameObjects()
+                foreach (var particle in (scanParticles ? scene.GetRootGameObjects() : Array.Empty<GameObject>())
                     .SelectMany(root => root.GetComponentsInChildren<ParticleSystem>(true)))
                 {
                     roots.Add(GetLocalParticleRoot(particle.gameObject));
@@ -254,39 +301,67 @@ namespace EffectsExtractor.Editor
                     StringComparer.Ordinal))
                     session.ExportSceneObject(root, sceneKey, GetHierarchyPath(root.transform));
 
-                var prefabPaths = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+                var assetPaths = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var path in selectedAssetPaths ?? Array.Empty<string>())
                 {
                     if (!path.StartsWith("Assets/", StringComparison.Ordinal) && path != "Assets")
-                        throw new InvalidOperationException("Select prefab assets or folders under Assets: " + path);
+                        throw new InvalidOperationException("Select effect assets or folders under Assets: " + path);
                     if (AssetDatabase.IsValidFolder(path))
                     {
-                        foreach (var guid in AssetDatabase.FindAssets("t:Prefab", new[] { path }))
-                            prefabPaths.Add(AssetDatabase.GUIDToAssetPath(guid));
+                        foreach (var guid in AssetDatabase.FindAssets("", new[] { path }))
+                        {
+                            var assetPath = AssetDatabase.GUIDToAssetPath(guid);
+                            if (IsEffectAssetPath(assetPath)) assetPaths.Add(assetPath);
+                        }
                     }
-                    else if (path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
-                        prefabPaths.Add(path);
-                    else
-                        throw new InvalidOperationException("Not a prefab asset or folder: " + path);
+                    else if (IsEffectAssetPath(path)) assetPaths.Add(path);
+                    else throw new InvalidOperationException("Not a prefab, shader or VFX Graph asset: " + path);
                 }
-                foreach (var path in prefabPaths)
+
+                var shaderPaths = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+                var sceneRoots = scene.GetRootGameObjects();
+                if (scanShaders)
+                    foreach (var root in sceneRoots) CollectShaders(root, shaderPaths);
+                if (scanVfx)
+                {
+                    var vfxRoots = sceneRoots.SelectMany(root => root.GetComponentsInChildren<Component>(true))
+                        .Where(IsVisualEffect).Select(effect => effect.gameObject).Distinct().ToArray();
+                    foreach (var root in vfxRoots.Where(root => !vfxRoots.Any(other =>
+                        other != root && root.transform.IsChildOf(other.transform))))
+                        session.ExportSceneObject(root, sceneKey, GetHierarchyPath(root.transform), "vfx");
+                }
+
+                foreach (var path in assetPaths)
                 {
                     if (path.StartsWith(GeneratedPrefabFolder + "/", StringComparison.OrdinalIgnoreCase))
                         continue;
-                    var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-                    if (prefab == null)
-                        throw new InvalidOperationException("Could not load selected prefab: " + path);
-                    if (prefab.GetComponentsInChildren<ParticleSystem>(true).Length > 0)
-                        session.ExportPrefab(path, prefab.name);
+                    if (path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                        if (prefab == null)
+                            throw new InvalidOperationException("Could not load selected prefab: " + path);
+                        if (scanParticles && prefab.GetComponentsInChildren<ParticleSystem>(true).Length > 0)
+                            session.ExportPrefab(path, prefab.name);
+                        if (scanVfx && prefab.GetComponentsInChildren<Component>(true).Any(IsVisualEffect))
+                            session.ExportVfxPrefab(path, prefab);
+                        if (scanShaders) CollectShaders(prefab, shaderPaths);
+                    }
+                    else if (path.EndsWith(".vfx", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (scanShaders) CollectAssetShaders(path, shaderPaths);
+                        if (scanVfx) session.ExportAsset(path, "vfx");
+                    }
+                    else if (scanShaders && IsShaderAssetPath(path)) shaderPaths.Add(path);
                 }
+                foreach (var shaderPath in shaderPaths) session.ExportAsset(shaderPath, "shader");
                 if (session.manifest.exports.Count == 0)
                     throw new InvalidOperationException(
-                        "No exportable particles in the active scene or selected prefab scope. " +
+                        "No exportable effects of the enabled types in the active scene or selected asset scope. " +
                         "Check the Console for dependency warnings.");
                 session.ExportPreviewPackage();
                 session.SaveManifest();
                 Debug.Log("[FindFX] Exported " + session.manifest.exports.Count +
-                    " particle effects. " + session.manifest.warnings.Count + " warning(s).");
+                    " effects. " + session.manifest.warnings.Count + " warning(s).");
             }
             finally
             {
@@ -488,7 +563,8 @@ namespace EffectsExtractor.Editor
         private static SanitizeResult CreateSanitizedPrefab(
             GameObject sourceRoot,
             string stableSourceKey,
-            string displayName)
+            string displayName,
+            string effectType = "particle")
         {
             if (sourceRoot == null)
                 throw new InvalidOperationException("Could not load the particle source root.");
@@ -543,7 +619,7 @@ namespace EffectsExtractor.Editor
                     item.gameObject.GetComponents<MonoBehaviour>().Count(script => script != null)) +
                     result.missingScriptCount;
 
-                var retainedObjects = BuildRetainedObjectSet(instance);
+                var retainedObjects = BuildRetainedObjectSet(instance, effectType);
                 foreach (var transform in originalTransforms.OrderByDescending(GetHierarchyDepth))
                 {
                     if (transform != null && transform.gameObject != instance &&
@@ -560,7 +636,7 @@ namespace EffectsExtractor.Editor
                     for (var index = components.Length - 1; index >= 0; index--)
                     {
                         var component = components[index];
-                        if (component == null || IsAllowedParticleComponent(component))
+                        if (component == null || IsAllowedEffectComponent(component, effectType))
                             continue;
                         UnityEngine.Object.DestroyImmediate(component);
                     }
@@ -583,14 +659,14 @@ namespace EffectsExtractor.Editor
                 result.particleSystemCount =
                     instance.GetComponentsInChildren<ParticleSystem>(true).Length;
 
-                if (result.particleSystemCount == 0)
+                if (effectType == "particle" && result.particleSystemCount == 0)
                     throw new InvalidOperationException("Sanitization removed every particle system.");
 
                 var savedPrefab = PrefabUtility.SaveAsPrefabAsset(instance, assetPath);
                 if (savedPrefab == null)
                     throw new InvalidOperationException("Unity could not save the sanitized prefab.");
 
-                ValidateSanitizedPrefab(assetPath);
+                ValidateSanitizedPrefab(assetPath, effectType);
                 return result;
             }
             finally
@@ -601,12 +677,14 @@ namespace EffectsExtractor.Editor
             }
         }
 
-        private static HashSet<GameObject> BuildRetainedObjectSet(GameObject root)
+        private static HashSet<GameObject> BuildRetainedObjectSet(GameObject root, string effectType)
         {
             var retained = new HashSet<GameObject>();
-            foreach (var particleSystem in root.GetComponentsInChildren<ParticleSystem>(true))
+            foreach (var component in root.GetComponentsInChildren<Component>(true)
+                .Where(component => effectType == "particle" ? component is ParticleSystem :
+                    effectType == "vfx" ? IsVisualEffect(component) : component is MeshRenderer))
             {
-                var cursor = particleSystem.transform;
+                var cursor = component.transform;
                 while (cursor != null)
                 {
                     retained.Add(cursor.gameObject);
@@ -618,7 +696,7 @@ namespace EffectsExtractor.Editor
             return retained;
         }
 
-        private static void ValidateSanitizedPrefab(string assetPath)
+        private static void ValidateSanitizedPrefab(string assetPath, string effectType)
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
             if (prefab == null)
@@ -632,7 +710,7 @@ namespace EffectsExtractor.Editor
 
                 foreach (var component in transform.gameObject.GetComponents<Component>())
                 {
-                    if (component == null || !IsAllowedParticleComponent(component))
+                    if (component == null || !IsAllowedEffectComponent(component, effectType))
                     {
                         var typeName = component == null ? "Missing Script" : component.GetType().FullName;
                         throw new InvalidOperationException(
@@ -692,6 +770,70 @@ namespace EffectsExtractor.Editor
             var packageName = slash >= 0 ? subPath.Substring(0, slash) : subPath;
 
             return packageName.StartsWith("com.unity.", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsEffectAssetPath(string path)
+        {
+            return path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase) ||
+                   path.EndsWith(".vfx", StringComparison.OrdinalIgnoreCase) || IsShaderAssetPath(path);
+        }
+
+        private static bool IsShaderAssetPath(string path)
+        {
+            return path.EndsWith(".shader", StringComparison.OrdinalIgnoreCase) ||
+                   path.EndsWith(".shadergraph", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static Type GetVisualEffectType()
+        {
+            return AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetType("UnityEngine.VFX.VisualEffect"))
+                .FirstOrDefault(type => type != null);
+        }
+
+        private static bool IsVisualEffect(Component component)
+        {
+            return component != null && component.GetType().FullName == "UnityEngine.VFX.VisualEffect";
+        }
+
+        private static bool IsAllowedEffectComponent(Component component, string effectType)
+        {
+            if (component is Transform) return true;
+            if (effectType == "particle") return IsAllowedParticleComponent(component);
+            if (effectType == "shader") return component is MeshFilter || component is MeshRenderer;
+            return IsVisualEffect(component) ||
+                (component != null && component.GetType().FullName == "UnityEngine.VFX.VFXRenderer");
+        }
+
+        private static void CollectShaders(GameObject root, ISet<string> paths)
+        {
+            // Dependencies include shaders referenced by VFX Graph assets as well as materials.
+            foreach (var component in root.GetComponentsInChildren<Component>(true))
+            {
+                if (component is Renderer renderer)
+                    foreach (var material in renderer.sharedMaterials)
+                        if (material != null) AddShader(material.shader, paths);
+                if (IsVisualEffect(component))
+                {
+                    var graph = component.GetType().GetProperty("visualEffectAsset").GetValue(component)
+                        as UnityEngine.Object;
+                    var graphPath = AssetDatabase.GetAssetPath(graph);
+                    CollectAssetShaders(graphPath, paths);
+                }
+            }
+        }
+
+        private static void CollectAssetShaders(string assetPath, ISet<string> paths)
+        {
+            if (string.IsNullOrEmpty(assetPath)) return;
+            foreach (var dependency in AssetDatabase.GetDependencies(assetPath, true))
+                if (IsShaderAssetPath(dependency) && dependency.StartsWith("Assets/")) paths.Add(dependency);
+        }
+
+        private static void AddShader(Shader shader, ISet<string> paths)
+        {
+            var path = AssetDatabase.GetAssetPath(shader);
+            if (IsShaderAssetPath(path) && path.StartsWith("Assets/")) paths.Add(path);
         }
 
         private static bool IsAllowedParticleComponent(Component component)

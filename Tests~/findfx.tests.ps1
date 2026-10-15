@@ -34,6 +34,8 @@ try {
     $manifestJson = @{
         dependencies = @{
             'com.viewfx.editor' = 'file:' + $archive.Replace('\', '/')
+            'com.unity.visualeffectgraph' = '17.3.0'
+            'com.unity.render-pipelines.universal' = '17.3.0'
             'com.unity.modules.particlesystem' = '1.0.0'
             'com.unity.modules.imgui' = '1.0.0'
             'com.unity.modules.unitywebrequest' = '1.0.0'
@@ -77,7 +79,9 @@ try {
         -PreExportedPath (Join-Path $exports 'packages') -LocalFolder $library -Port $Port -NoBrowser
     if ($LASTEXITCODE -ne 0) { throw 'Automatic FindFX server launch failed.' }
     $config = Invoke-RestMethod "http://localhost:$Port/api/config"
-    if (-not $config.capabilities.findFX) { throw 'Server did not advertise FindFX support.' }
+    if (-not $config.capabilities.findFX -or -not $config.capabilities.multiEffectPackages) {
+        throw 'Server did not advertise particle/VFX/shader package support.'
+    }
     # The launcher logs the server PID so cleanup only stops this test's own process.
     $serverPidPath = Join-Path $exports 'server.pid'
     $server = Get-Process -Id ([int](Get-Content -LiteralPath $serverPidPath -Raw))
@@ -87,12 +91,17 @@ try {
         Start-Sleep -Seconds 2
         $status = Invoke-RestMethod "http://localhost:$Port/api/project-extraction-job"
     } while ($status.state -in @('queued', 'running') -and [DateTime]::UtcNow -lt $deadline)
-    if ($status.state -ne 'complete' -or $status.exportCount -ne 4 -or $status.captureCount -ne 4 -or
-        $status.libraryCount -ne 4) {
+    if ($status.state -ne 'complete' -or $status.exportCount -ne 7 -or $status.captureCount -ne 7 -or
+        $status.libraryCount -ne 7) {
         throw "FindFX preview/publish failed: $($status | ConvertTo-Json -Depth 8)"
     }
     $manifest = Get-Content -LiteralPath (Join-Path $library 'manifest.json') -Raw | ConvertFrom-Json
-    if (@($manifest.effects).Count -ne 4) { throw 'Expected four published effects.' }
+    if (@($manifest.effects).Count -ne 7) { throw 'Expected seven published effects.' }
+    foreach ($type in @('particle', 'vfx', 'shader')) {
+        if (-not @($manifest.effects | Where-Object { $_.type -eq $type }).Count) {
+            throw "Published library is missing effect type $type."
+        }
+    }
     $override = @($manifest.effects | Where-Object { $_.name -eq 'InstanceOverride' })
     if ($override.Count -ne 1 -or $override[0].metadata.duration -ne 7) {
         throw 'Scene instance overrides did not survive prefab conversion, import and preview.'
@@ -133,7 +142,7 @@ try {
     if (Test-Path -LiteralPath (Join-Path $source 'Assets\Editor\EffectsExtractorPhase2')) {
         throw 'Pre-exported workflow injected scripts into the open source project.'
     }
-    Write-Host 'PASS: Automatic server launch, locked source bypass, four Unity previews and persistent gallery files.'
+    Write-Host 'PASS: Automatic server launch, locked source bypass, seven Unity previews and persistent gallery files.'
     $passed = $true
 } catch {
     Write-Host "Test diagnostics retained at $root"

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -9,7 +10,7 @@ using UnityEngine;
 namespace EffectsExtractor.Editor
 {
     /// <summary>
-    /// Captures only sanitized particle prefabs listed by the exporter manifest.
+    /// Captures sanitized effect prefabs listed by the exporter manifest.
     /// Imported temporary prefabs are removed from the preview container afterward.
     /// </summary>
     public static class EffectsThumbnailCaptureV2
@@ -28,6 +29,7 @@ namespace EffectsExtractor.Editor
         [Serializable]
         private sealed class ExportSelection
         {
+            public string effectType;
             public string name;
             public string captureAssetPath;
             public string prefabAssetPath;
@@ -60,36 +62,46 @@ namespace EffectsExtractor.Editor
             public float rateOverTime;
         }
 
-        public static void CaptureAllFromCommandLine()
+        public static async void CaptureAllFromCommandLine()
         {
-            var output = GetArgument("-captureOutput");
-            if (string.IsNullOrWhiteSpace(output))
-                throw new InvalidOperationException("-captureOutput is required.");
-
-            var selectionManifestPath = GetArgument("-captureSelectionManifest");
-            if (string.IsNullOrWhiteSpace(selectionManifestPath) ||
-                !File.Exists(selectionManifestPath))
-            {
-                throw new InvalidOperationException(
-                    "A valid -captureSelectionManifest is required for particle-only capture.");
-            }
-
-            var selections = ReadSelections(selectionManifestPath);
+            var exitCode = 0;
+            var allowAsyncCompilation = ShaderUtil.allowAsyncCompilation;
+            ShaderUtil.allowAsyncCompilation = false;
             try
             {
-                var count = CaptureSelections(output, selections);
+                var output = GetArgument("-captureOutput");
+                if (string.IsNullOrWhiteSpace(output))
+                    throw new InvalidOperationException("-captureOutput is required.");
+
+                var selectionManifestPath = GetArgument("-captureSelectionManifest");
+                if (string.IsNullOrWhiteSpace(selectionManifestPath) ||
+                    !File.Exists(selectionManifestPath))
+                {
+                    throw new InvalidOperationException(
+                        "A valid -captureSelectionManifest is required for effect capture.");
+                }
+
+                var selections = ReadSelections(selectionManifestPath);
+                var count = await CaptureSelections(output, selections);
                 if (count != selections.Count)
                 {
                     throw new InvalidOperationException(
                         "Captured " + count + " of " + selections.Count +
-                        " sanitized particle prefabs.");
+                        " sanitized effect prefabs.");
                 }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+                exitCode = 1;
             }
             finally
             {
                 // BlankEffectsProject is a disposable preview container. Keep PNGs
                 // outside the project and remove imported particle assets afterward.
+                ShaderUtil.allowAsyncCompilation = allowAsyncCompilation;
                 CleanupImportedParticleAssets();
+                EditorApplication.Exit(exitCode);
             }
         }
 
@@ -101,7 +113,7 @@ namespace EffectsExtractor.Editor
                 manifest.exports == null || manifest.exports.Count == 0)
             {
                 throw new InvalidOperationException(
-                    "The export manifest is not a sanitized particle manifest.");
+                    "The export manifest is not a sanitized effect manifest.");
             }
 
             var selections = new List<ExportSelection>();
@@ -122,13 +134,16 @@ namespace EffectsExtractor.Editor
                         "Manifest contains a non-sanitized or duplicate capture path: " + assetPath);
                 }
 
+                if (string.IsNullOrEmpty(selection.effectType)) selection.effectType = "particle";
+                if (selection.effectType != "particle" && selection.effectType != "vfx" && selection.effectType != "shader")
+                    throw new InvalidOperationException("Unsupported effect type: " + selection.effectType);
                 selection.captureAssetPath = assetPath;
                 selections.Add(selection);
             }
             return selections;
         }
 
-        private static int CaptureSelections(
+        private static async Task<int> CaptureSelections(
             string output,
             IReadOnlyList<ExportSelection> selections)
         {
@@ -173,7 +188,7 @@ namespace EffectsExtractor.Editor
                             "Sanitized prefab was not imported: " + selection.captureAssetPath);
                     }
 
-                    ValidateSanitizedPrefab(prefab, selection.captureAssetPath);
+                    ValidateSanitizedPrefab(prefab, selection.captureAssetPath, selection.effectType);
                     var instance = PrefabUtility.InstantiatePrefab(prefab) as GameObject;
                     if (instance == null)
                     {
@@ -186,7 +201,8 @@ namespace EffectsExtractor.Editor
                         instance.transform.position = Vector3.zero;
                         instance.transform.rotation = Quaternion.identity;
                         SetActiveRecursively(instance.transform);
-                        SimulateParticles(instance);
+                        if (selection.effectType == "particle") SimulateParticles(instance);
+                        if (selection.effectType == "vfx") await SimulateVfx(instance, camera);
                         FrameCamera(camera, instance);
                         camera.Render();
 
@@ -198,7 +214,8 @@ namespace EffectsExtractor.Editor
                             name = selection.name,
                             assetPath = selection.captureAssetPath,
                             thumbnail = fileName,
-                            metadata = ReadMetadata(instance)
+                            effectType = selection.effectType,
+                            metadata = selection.effectType == "particle" ? ReadMetadata(instance) : null
                         });
                     }
                     finally
@@ -222,14 +239,14 @@ namespace EffectsExtractor.Editor
                 new System.Text.UTF8Encoding(false));
             Debug.Log(
                 "Effects Extractor captured " + captureManifest.captures.Count +
-                " sanitized particle preview(s) to " + output);
+                " sanitized effect preview(s) to " + output);
             return captureManifest.captures.Count;
         }
 
-        private static void ValidateSanitizedPrefab(GameObject prefab, string assetPath)
+        private static void ValidateSanitizedPrefab(GameObject prefab, string assetPath, string effectType)
         {
             var particleCount = prefab.GetComponentsInChildren<ParticleSystem>(true).Length;
-            if (particleCount == 0)
+            if (effectType == "particle" && particleCount == 0)
                 throw new InvalidOperationException(
                     "Capture prefab has no ParticleSystem: " + assetPath);
 
@@ -241,10 +258,7 @@ namespace EffectsExtractor.Editor
 
                 foreach (var component in transform.gameObject.GetComponents<Component>())
                 {
-                    if (component == null ||
-                        (!(component is Transform) &&
-                         !(component is ParticleSystem) &&
-                         !(component is ParticleSystemRenderer)))
+                    if (!IsAllowedComponent(component, effectType))
                     {
                         var typeName = component == null
                             ? "Missing Script"
@@ -255,6 +269,78 @@ namespace EffectsExtractor.Editor
                     }
                 }
             }
+        }
+
+        private static bool IsVisualEffect(Component component)
+        {
+            return component != null && component.GetType().FullName == "UnityEngine.VFX.VisualEffect";
+        }
+
+        private static bool IsAllowedComponent(Component component, string effectType)
+        {
+            if (component is Transform) return true;
+            if (effectType == "particle")
+                return component is ParticleSystem || component is ParticleSystemRenderer;
+            if (effectType == "shader") return component is MeshFilter || component is MeshRenderer;
+            return IsVisualEffect(component) ||
+                (component != null && component.GetType().FullName == "UnityEngine.VFX.VFXRenderer");
+        }
+
+        private static async Task SimulateVfx(GameObject instance, Camera camera)
+        {
+            var effects = instance.GetComponentsInChildren<Component>(true).Where(IsVisualEffect).ToArray();
+            if (effects.Length == 0)
+                throw new InvalidOperationException("VFX Graph component could not be imported. Check the preview template packages.");
+            foreach (var effect in effects)
+            {
+                var type = effect.GetType();
+                ((Behaviour)effect).enabled = true;
+                if (type.GetProperty("visualEffectAsset").GetValue(effect) == null)
+                    throw new InvalidOperationException("VFX Graph asset was not imported.");
+                type.GetMethod("Reinit").Invoke(effect, null);
+                type.GetMethod("Play", Type.EmptyTypes).Invoke(effect, null);
+            }
+            FrameCamera(camera, instance);
+            camera.enabled = true;
+            // Warm up the render pipeline and VFX GPU resources before sending spawn events.
+            for (var frame = 0; frame < 30; frame++)
+            {
+                camera.Render();
+                await NextEditorFrame();
+                await Task.Delay(16);
+            }
+            foreach (var effect in effects)
+            {
+                effect.GetType().GetMethod("Reinit").Invoke(effect, null);
+                effect.GetType().GetMethod("Play", Type.EmptyTypes).Invoke(effect, null);
+            }
+            // Render between simulation steps so GPU graph work is submitted in batch mode.
+            for (var frame = 0; frame < 45; frame++)
+            {
+                foreach (var effect in effects)
+                    effect.GetType().GetMethod("Simulate").Invoke(effect, new object[] { 1f / 30f, 1u });
+                camera.Render();
+                await NextEditorFrame();
+                await Task.Delay(16);
+            }
+            foreach (var effect in effects)
+                Debug.Log("[FindFX] VFX capture " + instance.name + ": " +
+                    effect.GetType().GetProperty("aliveParticleCount").GetValue(effect) + " live particles.");
+            camera.enabled = false;
+        }
+
+        private static Task NextEditorFrame()
+        {
+            var completion = new TaskCompletionSource<bool>();
+            EditorApplication.CallbackFunction callback = null;
+            callback = () =>
+            {
+                EditorApplication.update -= callback;
+                completion.SetResult(true);
+            };
+            EditorApplication.update += callback;
+            EditorApplication.QueuePlayerLoopUpdate();
+            return completion.Task;
         }
 
         private static void SetActiveRecursively(Transform root)
@@ -291,7 +377,7 @@ namespace EffectsExtractor.Editor
         private static void FrameCamera(Camera camera, GameObject instance)
         {
             var renderers = instance
-                .GetComponentsInChildren<ParticleSystemRenderer>(true)
+                .GetComponentsInChildren<Renderer>(true)
                 .Where(renderer => renderer.enabled)
                 .ToArray();
             var hasBounds = false;

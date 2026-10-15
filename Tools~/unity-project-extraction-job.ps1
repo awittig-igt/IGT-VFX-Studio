@@ -233,7 +233,9 @@ function Publish-Extraction {
         } else {
             [string]$export.sourcePrefabAssetPath
         }
-        $id = Get-StableEffectId $GameName $sourceAssetPath $export.name
+        $effectType = if ($export.effectType) { [string]$export.effectType } else { 'particle' }
+        $identityPath = if ($effectType -eq 'particle') { $sourceAssetPath } else { $sourceAssetPath + '::' + $effectType }
+        $id = Get-StableEffectId $GameName $identityPath $export.name
         $packageSource = Join-Path $OutputPath $export.packageFile
         if (-not (Test-Path -LiteralPath $packageSource -PathType Leaf)) {
             throw "Exported package is missing: $packageSource"
@@ -272,7 +274,7 @@ function Publish-Extraction {
         $entry = [pscustomobject]@{
             id = $id
             name = $export.name
-            type = 'particle'
+            type = $effectType
             game = $GameName
             importSource = 'project-scan'
             packageFile = $packageName
@@ -283,7 +285,7 @@ function Publish-Extraction {
                 thumbnail = $thumbnailRelative
             }
             metadata = [pscustomobject]$metadata
-            tags = @('particle', (Convert-ToSlug $GameName), 'project-scan', 'unity-package')
+            tags = @($effectType, (Convert-ToSlug $GameName), 'project-scan', 'unity-package')
             extractedAt = [DateTime]::UtcNow.ToString('o')
         }
         $effects = @($effects | Where-Object { $_.id -ne $id })
@@ -364,7 +366,7 @@ try {
     $exportManifestPath = Join-Path $OutputPath 'particle-package-manifest.json'
 
     if ($PreExportedPath) {
-        Set-JobStatus 'running' 'export' 25 'Using particles extracted by FindFX from the open Unity Editor...'
+        Set-JobStatus 'running' 'export' 25 'Using effects extracted by FindFX from the open Unity Editor...'
         $PreExportedPath = [IO.Path]::GetFullPath($PreExportedPath)
         if (-not (Test-Path -LiteralPath (Join-Path $PreExportedPath 'particle-package-manifest.json') -PathType Leaf)) {
             throw "FindFX export manifest not found in: $PreExportedPath"
@@ -387,20 +389,23 @@ try {
             throw "Unity prefab export failed (exit $($exportProcess.ExitCode)). $(Get-LogTail $exportLog)"
         }
         if (-not (Test-Path -LiteralPath $exportManifestPath -PathType Leaf)) {
-            throw 'Unity completed without creating a particle package manifest.'
+            throw 'Unity completed without creating an effect package manifest.'
         }
     }
     $exportManifest = Get-Content -LiteralPath $exportManifestPath -Raw | ConvertFrom-Json
     $exportCount = @($exportManifest.exports).Count
-    if ($exportCount -eq 0) { throw 'No particle prefabs were found in the Unity project.' }
+    if ($exportCount -eq 0) { throw 'No effects were found in the Unity project.' }
     if ([int]$exportManifest.formatVersion -lt 2 -or $exportManifest.sanitized -ne $true) {
-        throw 'The exporter did not produce a sanitized particle-only manifest.'
+        throw 'The exporter did not produce a sanitized effect manifest.'
     }
     foreach ($export in @($exportManifest.exports)) {
         $captureAssetPath = if ($export.captureAssetPath) {
             [string]$export.captureAssetPath
         } else {
             [string]$export.prefabAssetPath
+        }
+        if ($export.effectType -and $export.effectType -notin @('particle', 'vfx', 'shader')) {
+            throw "Unsupported effect type: $($export.effectType)"
         }
         if ($export.sanitized -ne $true -or
             -not $captureAssetPath.StartsWith('Assets/EffectsExtractor/ParticlePackages/', [StringComparison]::OrdinalIgnoreCase)) {
@@ -428,7 +433,7 @@ try {
         throw "Preview import package is missing: $previewPackagePath"
     }
     if ($ExportOnly) {
-        Set-JobStatus 'complete' 'complete' 100 "Validated $exportCount sanitized particle package(s)." $exportCount
+        Set-JobStatus 'complete' 'complete' 100 "Validated $exportCount sanitized effect package(s)." $exportCount
         return
     }
 
@@ -444,9 +449,9 @@ try {
         throw "Unity preview import failed (exit $($importProcess.ExitCode)). $(Get-LogTail $importLog)"
     }
 
-    Set-JobStatus 'running' 'capture' 70 'Assets imported into the preview container. Capturing particle previews...' $exportCount
+    Set-JobStatus 'running' 'capture' 70 'Assets imported into the preview container. Capturing effect previews...' $exportCount
     $captureArguments = @(
-        '-batchmode', '-quit', '-accept-apiupdate',
+        '-batchmode', '-accept-apiupdate',
         '-projectPath', ('"{0}"' -f $previewWorkspace),
         '-executeMethod', 'EffectsExtractor.Editor.EffectsThumbnailCaptureV2.CaptureAllFromCommandLine',
         '-captureOutput', ('"{0}"' -f $CapturePath),
@@ -471,7 +476,7 @@ try {
     $published = Publish-Extraction $exportManifest $captureManifest
     $warnings = @($exportManifest.warnings)
     foreach ($warning in $warnings) { Write-ExtractionLog "WARNING: $warning" }
-    Set-JobStatus 'complete' 'complete' 100 "Published $published particle package(s) to the gallery." $exportCount $captureCount $published $warnings
+    Set-JobStatus 'complete' 'complete' 100 "Published $published effect package(s) to the gallery." $exportCount $captureCount $published $warnings
 } catch {
     $failure = $_
     $failedPhase = $currentPhase

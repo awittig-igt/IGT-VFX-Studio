@@ -39,14 +39,14 @@ try {
             $config = $null
         }
 
-        if ($config -and $config.capabilities.findFX -and
+        if ($config -and $config.capabilities.findFX -and $config.capabilities.multiEffectPackages -and
             ([IO.Path]::GetFullPath([string]$config.localFolder).TrimEnd('\') -eq $LocalFolder.TrimEnd('\'))) {
             $reusingExistingServer = $true
             Write-Host "Reusing existing FindFX server on port $Port."
         } else {
             if ($StrictPort) {
                 if ($config -and $config.capabilities.findFX) {
-                    throw "The server on port $Port uses another library folder ($($config.localFolder)). Choose another port or the same library in FindFX."
+                    throw "The server on port $Port uses an older FindFX runtime or another library folder ($($config.localFolder)). Choose another port in FindFX."
                 }
                 throw "Port $Port is used by another service or an older EffectsExtractor server. Choose another port in FindFX."
             }
@@ -64,7 +64,7 @@ try {
                 try {
                     $tryUrl = "http://localhost:$tryPort"
                     $tryConfig = Invoke-RestMethod "$tryUrl/api/config" -TimeoutSec 2
-                    if ($tryConfig -and $tryConfig.capabilities.findFX -and
+                    if ($tryConfig -and $tryConfig.capabilities.findFX -and $tryConfig.capabilities.multiEffectPackages -and
                         ([IO.Path]::GetFullPath([string]$tryConfig.localFolder).TrimEnd('\') -eq $LocalFolder.TrimEnd('\'))) {
                         $Port = $tryPort
                         $baseUrl = $tryUrl
@@ -118,7 +118,7 @@ try {
                 Start-Sleep -Milliseconds 500
             }
         }
-        if (-not $config -or -not $config.capabilities.findFX) {
+        if (-not $config -or -not $config.capabilities.findFX -or -not $config.capabilities.multiEffectPackages) {
             throw "FindFX server did not become responsive within 60 seconds. See $serverLog."
         }
     }

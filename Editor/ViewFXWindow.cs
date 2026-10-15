@@ -144,7 +144,7 @@ namespace ViewFX.Editor
             DrawToolCard(Menu.ViewFX, logo, "ViewFX",
                 "Connect your ViewFX account and download effects directly into your Unity project.");
             DrawToolCard(Menu.FindFX, findFXLogo, "FindFX",
-                "Find particle effects in your scene, package them, and browse previews in your local gallery.");
+                "Find particles, VFX Graph effects and shaders, package them, and browse previews in your local gallery.");
         }
 
         private void DrawToolCard(Menu menu, Texture2D texture, string title, string description)
