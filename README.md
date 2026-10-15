@@ -24,7 +24,7 @@ Connections are independent per project path and operating-system user. On Windo
 
 ## Download effects
 
-Connected, open projects register automatically even when the ViewFX window is closed. On the website, click **Add to Unity**, select this project, and click **Proceed**. The site shows download progress and can cancel the download. After completion, Unity opens its standard package import dialog for review. Imports wait while Unity is compiling, updating assets, or in Play mode. Downloads are saved to the operating system's temporary ViewFX directory; cancelled files are removed. Upload effects through the ViewFX website.
+Connected, open projects register automatically even when the ViewFX window is closed. On the website, click **Add to Unity**, select this project, and click **Proceed**. The site shows download progress and can cancel the download. After completion, Unity opens its standard package import dialog for review. Imports wait while Unity is compiling, updating assets, or in Play mode. Downloads are saved to the operating system's temporary ViewFX directory; cancelled files are removed.
 
 
 ## FindFX: extract and preview
@@ -33,7 +33,17 @@ Open **Window > VFXStudio > Open FindFX**. Choose your local library folder and 
 
 Source objects and assets are preserved. Extracted hierarchies become disconnected effect prefabs with scripts and unrelated components removed. Particle packages retain Particle Systems, VFX packages retain Visual Effect components and their graph assets, and shader packages include the shader with a sphere and preview material. Dependencies on non-standard packages (package names outside `com.unity.*`) are skipped with Console warnings. Generated assets under `Assets/EffectsExtractor/ParticlePackages` are temporary; do not store your own assets there.
 
-The bundled PowerShell server opens a separate local browser gallery. Unity 6000.3.15f1 imports packages and captures previews in a disposable copy of the bundled URP template with VFX Graph support. Shader spheres and simulated VFX Graph effects use Unity-rendered image previews in the gallery. Each category provides a downloadable `.unitypackage` with its asset dependencies. Install that Editor through Unity Hub. The source Editor stays open; no Node.js installation or EffectsExtractor checkout is needed. Renderer compatibility matters: built-in or HDRP effects may need a different preview template. ViewFX account connection is not required for local extraction. Uploading extracted effects directly to ViewFX is not included.
+The bundled PowerShell server opens a separate local browser gallery. Unity 6000.3.15f1 imports packages and captures previews in a disposable copy of the bundled URP template with VFX Graph support. Shader spheres and simulated VFX Graph effects use Unity-rendered image previews in the gallery. Each category provides a downloadable `.unitypackage` with its asset dependencies. Install that Editor through Unity Hub. The source Editor stays open; no Node.js installation or EffectsExtractor checkout is needed. Renderer compatibility matters: built-in or HDRP effects may need a different preview template. ViewFX account connection is not required for local extraction.
+
+## Publish extracted effects
+
+On an effect's detail page, click **Upload to ViewFX**. A generated Unity package and preview image are required; the button explains missing requirements when disabled. Enter your ViewFX website URL (HTTPS, or HTTP localhost for development), then **Connect to ViewFX**. Sign in and approve publishing in the opened ViewFX page. If the popup is blocked, use the approval link in the dialog. Publishing access is separate from the Unity download connection.
+
+Review the name, description and comma-separated tags, and supply the source effect's Unity release version and rendering pipeline. Click **Upload effect**. Progress covers the transfer and server-side package validation; the result links directly to the published effect. Retrying the same library effect under the same account returns the existing effect instead of creating another. Edit already published effects on the ViewFX website.
+
+The website URL is remembered locally. The publishing credential stays in this browser tab's session storage; reconnect after closing the tab. Server credentials expire after 90 days, and **Disconnect** revokes the credential immediately. GitHub package storage credentials remain on the ViewFX server. Restart the FindFX web server after updating the companion so the updated detail page is served.
+
+Run `node --test Tests~/ViewFXPublisher.tests.cjs` for the publishing browser-controller tests. They cover required assets, connection approval, upload payloads, stable retry IDs, server errors, and disconnect without accessing a live account or package repository.
 
 The library persists at the chosen folder (default `%LOCALAPPDATA%\FindFX\Library`). The server reuses a compatible existing instance or finds another free port. Only one preview job runs per server. Switching tools or closing VFXStudio does not stop the launcher or preview job. The gallery shows progress and errors; the Unity panel provides the launch log path. Use **Kill all servers** in the FindFX card to stop all FindFX PowerShell web servers across projects. The card reports the result. This interrupts web requests; saved library files are preserved. The button verifies each disposable runtime path and its `server.pid` before stopping the process. Unrelated PowerShell processes and Unity Editors are left running.
 

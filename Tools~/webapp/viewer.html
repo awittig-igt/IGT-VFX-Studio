@@ -27,6 +27,7 @@
       </a>
       <h1 id="effect-title" class="viewer-title">Loading…</h1>
       <div class="header-badges">
+        <button id="btn-publish-viewfx" type="button" class="btn-primary" disabled>Upload to ViewFX</button>
         <span id="badge-type" class="badge">—</span>
         <span id="badge-game" class="badge badge-game">—</span>
       </div>
@@ -97,6 +98,30 @@
 
   </div><!-- /viewer-layout -->
 
+  <dialog id="publish-viewfx-dialog" class="publish-dialog" aria-labelledby="publish-viewfx-title">
+    <form id="publish-viewfx-form">
+      <h2 id="publish-viewfx-title">Upload to ViewFX</h2>
+      <label>ViewFX website URL<input name="site" type="url" required placeholder="https://your-viewfx-site" /></label>
+      <div class="publish-actions">
+        <button id="publish-connect" type="button" class="btn-secondary">Connect to ViewFX</button>
+        <button id="publish-disconnect" type="button" class="btn-secondary" hidden>Disconnect</button>
+      </div>
+      <p id="publish-account" role="status">Connect your ViewFX account to publish.</p>
+      <label>Effect name<input name="name" required maxlength="200" /></label>
+      <label>Description<textarea name="description" rows="3"></textarea></label>
+      <label>Tags<input name="tags" placeholder="Fire, Magic" /></label>
+      <label>Unity version<input name="unityVersion" required pattern="[0-9]+\.[0-9]+\.[0-9]+f[0-9]+" placeholder="2022.3.62f1" /></label>
+      <label>Rendering pipeline<select name="renderingPipeline" required><option value="">Choose pipeline</option><option value="built-in">Built-in</option><option value="urp">URP</option><option value="hdrp">HDRP</option></select></label>
+      <p>The effect’s Unity package and preview image will be uploaded. Packages must be 70 MiB or smaller.</p>
+      <p id="publish-status" role="status" aria-live="polite"></p>
+      <a id="publish-result" target="_blank" rel="noopener noreferrer" hidden>Open ViewFX</a>
+      <div class="publish-actions">
+        <button id="publish-submit" type="submit" class="btn-primary" disabled>Upload effect</button>
+        <button id="publish-close" type="button" class="btn-secondary">Close</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Three.js r128 (last version with examples/js/ controls) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -110,5 +135,6 @@
   <script src="js/particle-preview.js"></script>
   <script src="js/shader-preview.js"></script>
   <script src="js/viewer.js"></script>
+  <script src="js/viewfx-publisher.js"></script>
 </body>
 </html>

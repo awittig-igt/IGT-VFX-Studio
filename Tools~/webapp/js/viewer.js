@@ -78,6 +78,7 @@ function render(e) {
   fillFiles(e);
   initTabs();
   initPreviewTabs(e);
+  document.dispatchEvent(new CustomEvent('effect-ready', { detail: { effect: e, source: currentAssetSource } }));
 }
 
 // ── Metadata table ────────────────────────────────────────────────────────
