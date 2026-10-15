@@ -109,7 +109,7 @@
       <p id="publish-account" role="status">Connect your ViewFX account to publish.</p>
       <label>Effect name<input name="name" required maxlength="200" /></label>
       <label>Description<textarea name="description" rows="3"></textarea></label>
-      <label>Tags<input name="tags" placeholder="Fire, Magic" /></label>
+      <label>Tags<input name="tags" placeholder="Fire, Magic" aria-describedby="publish-tags-hint" /><small id="publish-tags-hint">Separate tags with commas. Each tag must be 1–100 characters; no empty entries or control characters.</small></label>
       <label>Unity version<input name="unityVersion" required pattern="[0-9]+\.[0-9]+\.[0-9]+f[0-9]+" placeholder="2022.3.62f1" /></label>
       <label>Rendering pipeline<select name="renderingPipeline" required><option value="">Choose pipeline</option><option value="built-in">Built-in</option><option value="urp">URP</option><option value="hdrp">HDRP</option></select></label>
       <p>The effect’s Unity package and preview image will be uploaded. Packages must be 70 MiB or smaller.</p>

@@ -10,6 +10,8 @@ function harness({ config = {} } = {}) {
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       value: '', disabled: false, hidden: false, listeners: {},
+      setCustomValidity(message) { this.validationMessage = message; },
+      reportValidity() { return !this.validationMessage; },
       addEventListener(name, callback) { this.listeners[name] = callback; },
       async fire(name, event = {}) { return this.listeners[name]?.({ preventDefault() {}, ...event }); },
       showModal() { this.open = true; },
@@ -57,7 +59,7 @@ function harness({ config = {} } = {}) {
   };
   vm.runInNewContext(readFileSync(require('node:path').join(__dirname, '../Tools~/webapp/js/viewfx-publisher.js'), 'utf8'), context);
   const ready = (overrides = {}, source = 'local') => document.listeners['effect-ready']({ detail: { source, effect: {
-    id: 'fire', name: 'Fire', type: 'particle', tags: ['Magic'], files: { package: 'fire.unitypackage', thumbnail: 'fire.png' }, ...overrides,
+    id: 'fire', name: 'Fire', game: 'MyGame', type: 'particle', tags: ['Magic'], files: { package: 'fire.unitypackage', thumbnail: 'fire.png' }, ...overrides,
   } } });
   return { element, ready, calls, uploads, sessionStorage,
     setUpload(status, result) { uploadStatus = status; uploadResult = result; },
@@ -92,7 +94,7 @@ test('connect, review, upload, safe retry and disconnect', async () => {
   assert.equal(first.headers.Authorization, 'Bearer publisher-secret');
   assert.equal(first.headers['X-Source-Id'].length, 64);
   assert.equal(first.data.get('name'), 'Fire');
-  assert.equal(first.data.get('tags'), '["Magic"]');
+  assert.equal(first.data.get('tags'), '["MyGame"]');
   assert.equal(first.data.get('unityVersion'), '2022.3.62f1');
   assert.equal(first.data.get('package').name, 'fire.unitypackage');
   assert.equal(first.data.get('media').type, 'image/png');
@@ -161,4 +163,23 @@ test('legacy local effects use only the matching source project version', async 
     await h.element('btn-publish-viewfx').fire('click');
     assert.equal(h.element('field-unityVersion').value, expected);
   }
+});
+
+test('invalid tags block uploads and correcting them clears validation', async () => {
+  const h = harness(); await connected(h);
+  for (const value of ['Fire,,Magic', ',Fire', 'Fire, ', 'x'.repeat(101), 'Fire\nMagic', 'Fire\u007f']) {
+    h.element('field-tags').value = value;
+    await h.element('field-tags').fire('input');
+    assert.match(h.element('field-tags').validationMessage, /Separate tags with commas/);
+    await h.element('publish-viewfx-form').fire('submit');
+    assert.equal(h.uploads.length, 0);
+  }
+  h.element('field-tags').value = ' My Game, Dragon’s Gold™, ゲーム ';
+  await h.element('field-tags').fire('input');
+  assert.equal(h.element('field-tags').validationMessage, '');
+  await h.element('publish-viewfx-form').fire('submit');
+  assert.equal(h.uploads[0].data.get('tags'), '["My Game","Dragon’s Gold™","ゲーム"]');
+  h.element('field-tags').value = '';
+  await h.element('publish-viewfx-form').fire('submit');
+  assert.equal(h.uploads[1].data.get('tags'), '[]');
 });

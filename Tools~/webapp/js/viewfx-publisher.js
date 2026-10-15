@@ -12,6 +12,15 @@
   const field = name => form.elements.namedItem(name);
   let effect, source, credential, pending, busy = false;
 
+  function validateTags() {
+    const input = field('tags');
+    const tags = input.value.trim() ? input.value.split(',').map(tag => tag.trim()) : [];
+    const invalid = /[\u0000-\u001f\u007f]/.test(input.value) || tags.some(tag => !tag || tag.length > 100);
+    input.setCustomValidity(invalid ? 'Separate tags with commas. Each tag must be 1–100 characters, with no empty entries or control characters.' : '');
+    return invalid ? null : tags;
+  }
+  field('tags').addEventListener('input', validateTags);
+
   async function fillUnityVersion(selectedEffect, selectedSource) {
     // Older local libraries predate per-effect versions. Only use the configured
     // source project when its identity matches; the preview project's version is unrelated.
@@ -69,7 +78,8 @@
     field('site').value = localStorage.getItem('viewfx-publish-site') || 'http://localhost:5173';
     field('name').value = effect.name || '';
     field('description').value = effect.description || '';
-    field('tags').value = (effect.tags || []).join(', ');
+    field('tags').value = effect.game || '';
+    validateTags();
     field('unityVersion').value = effect.unityVersion || effect.metadata?.unityVersion || '';
     field('renderingPipeline').value = effect.renderingPipeline || effect.metadata?.renderingPipeline || '';
     status.textContent = '';
@@ -155,6 +165,8 @@
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
+    const tags = validateTags();
+    if (!tags) { field('tags').reportValidity(); return; }
     if (busy || !credential || credential.site !== siteOrigin()) return;
     busy = true; refresh(); resultLink.hidden = true;
     document.getElementById('publish-close').disabled = true;
@@ -170,7 +182,7 @@
       const data = new FormData();
       ['name', 'description', 'unityVersion', 'renderingPipeline'].forEach(name => data.append(name, field(name).value));
       data.append('type', effect.type);
-      data.append('tags', JSON.stringify(field('tags').value.split(',').map(tag => tag.trim()).filter(Boolean)));
+      data.append('tags', JSON.stringify(tags));
       data.append('package', pkg, packageItem.filename);
       data.append('media', preview, previewItem.filename);
       const identity = JSON.stringify([source === 'local' ? 'local' : getConfig().repo, effect.game || '', effect.id]);
