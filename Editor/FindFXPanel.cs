@@ -81,6 +81,14 @@ namespace ViewFX.Editor
             advanced = EditorGUILayout.Foldout(advanced, "Advanced settings", true);
             if (advanced)
             {
+                using (new EditorGUI.DisabledScope(Application.platform != RuntimePlatform.WindowsEditor ||
+                    launcher != null || serverStopper != null))
+                {
+                    if (GUILayout.Button("Kill all servers"))
+                        StopAllServers();
+                }
+                if (!string.IsNullOrEmpty(serverStopStatus))
+                    EditorGUILayout.HelpBox(serverStopStatus, MessageType.Info);
                 port = EditorGUILayout.IntField("Web app port", port);
                 EditorGUI.BeginChangeCheck();
                 scanParticles = EditorGUILayout.ToggleLeft("Scan particles", scanParticles);
@@ -97,14 +105,6 @@ namespace ViewFX.Editor
                     EditorGUILayout.HelpBox(
                         "Select prefabs, VFX Graph assets, shaders or folders under Assets in the Project window. " +
                         "Folders are searched recursively; unrelated assets are not scanned.", MessageType.Info);
-                using (new EditorGUI.DisabledScope(Application.platform != RuntimePlatform.WindowsEditor ||
-                    launcher != null || serverStopper != null))
-                {
-                    if (ViewFXWindow.CenteredButton("Kill all servers"))
-                        StopAllServers();
-                }
-                if (!string.IsNullOrEmpty(serverStopStatus))
-                    EditorGUILayout.HelpBox(serverStopStatus, MessageType.Info);
             }
             EditorGUILayout.HelpBox(
                 "Windows only. Requires Unity 6000.3.15f1. Previews use a disposable copy; the source stays open.",
