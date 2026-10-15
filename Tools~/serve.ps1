@@ -393,19 +393,19 @@ function Start-PackageJob($packagePath) {
     Start-Process powershell.exe -ArgumentList $arguments -WindowStyle Hidden
 }
 
-function Start-ProjectExtractionJob($gameName, [string]$preExportedPath = '', [string]$findFXSourcePath = '') {
-    if (-not $SourceProjectPath -and -not $findFXSourcePath) { throw 'Source Game Project Path is not configured.' }
+function Start-ProjectExtractionJob($gameName, [string]$preExportedPath = '', [string]$findFXSourcePath = '', [string]$regenerateEffectId = '') {
+    if (-not $SourceProjectPath -and -not $findFXSourcePath -and -not $regenerateEffectId) { throw 'Source Game Project Path is not configured.' }
     if (-not $PreviewProjectPath) { throw 'Preview Container Project Path is not configured.' }
-    $sourcePath = if ($findFXSourcePath) { [IO.Path]::GetFullPath($findFXSourcePath) } else { [IO.Path]::GetFullPath($SourceProjectPath) }
+    $sourcePath = if ($regenerateEffectId) { [IO.Path]::GetFullPath($PreviewProjectPath) } elseif ($findFXSourcePath) { [IO.Path]::GetFullPath($findFXSourcePath) } else { [IO.Path]::GetFullPath($SourceProjectPath) }
     $previewPath = [IO.Path]::GetFullPath($PreviewProjectPath)
-    if (-not $preExportedPath -and -not (Test-UnityProject $sourcePath)) { throw "Source game project is invalid or incomplete: $sourcePath" }
+    if (-not $regenerateEffectId -and -not $preExportedPath -and -not (Test-UnityProject $sourcePath)) { throw "Source game project is invalid or incomplete: $sourcePath" }
     if ($preExportedPath -and
         (-not (Test-Path -LiteralPath (Join-Path $sourcePath 'Assets') -PathType Container) -or
          -not (Test-Path -LiteralPath (Join-Path $sourcePath 'ProjectSettings') -PathType Container))) {
         throw "FindFX source is not a Unity project: $sourcePath"
     }
     if (-not (Test-UnityProject $previewPath)) { throw "Preview container project is invalid or incomplete: $previewPath" }
-    if ($sourcePath -eq $previewPath) {
+    if (-not $regenerateEffectId -and $sourcePath -eq $previewPath) {
         throw 'The source game project and preview container must be different Unity projects.'
     }
 
@@ -451,6 +451,7 @@ function Start-ProjectExtractionJob($gameName, [string]$preExportedPath = '', [s
         exportCount = 0; captureCount = 0; libraryCount = 0
         warnings = @(); updatedAt = [DateTime]::UtcNow.ToString('o')
         logPath = $diagnosticLogPath
+        effectId = $regenerateEffectId
     } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $projectJobStatusPath -Encoding UTF8
 
     $arguments = @(
@@ -466,6 +467,9 @@ function Start-ProjectExtractionJob($gameName, [string]$preExportedPath = '', [s
     )
     if ($preExportedPath) {
         $arguments += @('-PreExportedPath', ('"{0}"' -f ([IO.Path]::GetFullPath($preExportedPath))))
+    }
+    if ($regenerateEffectId) {
+        $arguments += @('-RegenerateEffectId', $regenerateEffectId)
     }
     try {
         $script:projectJobProcess = Start-Process powershell.exe -ArgumentList $arguments -WindowStyle Hidden -PassThru `
@@ -624,6 +628,18 @@ try {
                 }
                 $job = Start-ProjectExtractionJob ([string]$body.gameName) ([string]$body.preExportedPath) ([string]$body.sourceProjectPath)
                 Send-Json $res @{ ok = $true; job = $job }
+            }
+
+            # POST /api/project-extraction
+            elseif ($method -eq 'POST' -and $rawPath -eq '/api/regenerate-preview') {
+                $payload = (New-Object IO.StreamReader($req.InputStream, [Text.Encoding]::UTF8)).ReadToEnd() | ConvertFrom-Json
+                $effectId = [string]$payload.effectId
+                if ($effectId -notmatch '^[a-zA-Z0-9_-]+$') { throw 'A valid local effect ID is required.' }
+                $manifest = Get-Content -LiteralPath (Join-Path $LocalFolder 'manifest.json') -Raw | ConvertFrom-Json
+                $effect = $manifest.effects | Where-Object { $_.id -eq $effectId } | Select-Object -First 1
+                if (-not $effect -or -not $effect.files.package) { throw 'No local effect package was found. Scan this effect with FindFX first.' }
+                $job = Start-ProjectExtractionJob $effect.game '' '' $effectId
+                Send-Json $res @{ ok = $true; jobId = $job.jobId; effectId = $effectId } 202
             }
 
             # POST /api/project-extraction

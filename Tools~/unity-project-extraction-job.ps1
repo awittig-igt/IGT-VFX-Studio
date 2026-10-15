@@ -9,7 +9,8 @@ param(
     [Parameter(Mandatory = $true)][string]$GameName,
     [string]$PreExportedPath = "",
     [int]$ExportLimit = 0,
-    [switch]$ExportOnly
+    [switch]$ExportOnly,
+    [string]$RegenerateEffectId = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,6 +50,7 @@ function Set-JobStatus {
         libraryCount = $LibraryCount
         warnings     = @($Warnings)
         logPath      = $diagnosticLogPath
+        effectId     = $RegenerateEffectId
         updatedAt    = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $StatusPath -Encoding UTF8
 }
@@ -366,17 +368,18 @@ try {
     $OutputPath = [IO.Path]::GetFullPath($OutputPath)
     $CapturePath = [IO.Path]::GetFullPath($CapturePath)
     $LocalFolder = [IO.Path]::GetFullPath($LocalFolder)
-    if (-not $PreExportedPath) { Assert-ProjectAvailable $SourceProjectPath }
+    if (-not $PreExportedPath -and -not $RegenerateEffectId) { Assert-ProjectAvailable $SourceProjectPath }
     Assert-ProjectAvailable $PreviewProjectPath
     New-Item -ItemType Directory -Force -Path $OutputPath | Out-Null
     New-Item -ItemType Directory -Force -Path $CapturePath | Out-Null
     New-Item -ItemType Directory -Force -Path $LocalFolder | Out-Null
     $jobRoot = Split-Path -Parent $OutputPath
 
-    Set-JobStatus 'running' 'prepare' 10 'Preparing the game scanner and preview container...'
+    $prepareMessage = if ($RegenerateEffectId) { 'Creating a temporary Unity workspace for this preview...' } else { 'Preparing the game scanner and preview container...' }
+    Set-JobStatus 'running' 'prepare' 10 $prepareMessage
     $sourceAssetsPath = Join-Path $SourceProjectPath 'Assets'
     $sourceInjectionPath = Join-Path $sourceAssetsPath 'Editor\EffectsExtractorPhase2'
-    if (-not $PreExportedPath) {
+    if (-not $PreExportedPath -and -not $RegenerateEffectId) {
         Remove-LegacyInjectedScript $sourceInjectionPath 'ParticlePackageExporter.cs'
         Add-AutomationScript 'ParticlePackageExporterV2.cs' $sourceAssetsPath $sourceInjectionPath $sourceInjectedFiles
     }
@@ -399,7 +402,7 @@ try {
         Add-AutomationScript 'EffectsThumbnailCaptureV2.cs' $previewAssetsPath $previewInjectionPath $previewInjectedFiles
     }
 
-    $sourceUnity = if ($PreExportedPath) { $null } else { Find-UnityEditor $SourceProjectPath }
+    $sourceUnity = if ($PreExportedPath -or $RegenerateEffectId) { $null } else { Find-UnityEditor $SourceProjectPath }
     $previewUnity = if ($ExportOnly) { $null } else { Find-UnityEditor $PreviewProjectPath }
     $logFolder = $jobRoot
     $exportLog = Join-Path $logFolder 'effects-project-export.log'
@@ -407,7 +410,37 @@ try {
     $captureLog = Join-Path $logFolder 'effects-project-capture.log'
     $exportManifestPath = Join-Path $OutputPath 'particle-package-manifest.json'
 
-    if ($PreExportedPath) {
+    if ($RegenerateEffectId) {
+        Set-JobStatus 'running' 'prepare' 25 'Preparing the existing effect package for preview regeneration...'
+        $library = Get-Content -LiteralPath (Join-Path $LocalFolder 'manifest.json') -Raw | ConvertFrom-Json
+        $effect = $library.effects | Where-Object { $_.id -eq $RegenerateEffectId } | Select-Object -First 1
+        if (-not $effect -or -not $effect.files.package) { throw 'This effect has no local sanitized package. Scan it with FindFX first.' }
+        $packagePath = [IO.Path]::GetFullPath((Join-Path $LocalFolder $effect.files.package))
+        if (-not $packagePath.StartsWith($LocalFolder.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Effect package is outside the local library.'
+        }
+        $entries = @(& tar.exe -tzf $packagePath)
+        if ($LASTEXITCODE -ne 0) { throw 'Could not read the effect package.' }
+        $dependencies = @()
+        foreach ($entry in $entries) {
+            if ($entry -match '^[a-fA-F0-9]{32}/pathname$') {
+                $assetPath = (& tar.exe -xOzf $packagePath $entry) -join "`n"
+                if ($LASTEXITCODE -ne 0) { throw 'Could not read an asset path from the effect package.' }
+                $dependencies += $assetPath.Trim()
+            }
+        }
+        $prefabs = @($dependencies | Where-Object { $_ -like 'Assets/EffectsExtractor/ParticlePackages/*.prefab' })
+        if ($prefabs.Count -ne 1) { throw 'Expected one sanitized capture prefab in the effect package. Rescan this effect with FindFX.' }
+        Copy-Item -LiteralPath $packagePath -Destination (Join-Path $OutputPath 'regenerate.unitypackage') -Force
+        @{
+            formatVersion = 4; sanitized = $true; previewPackageFile = 'regenerate.unitypackage'
+            exports = @(@{
+                name = $effect.name; effectType = $effect.type; sanitized = $true
+                captureAssetPath = $prefabs[0]; sourcePath = $effect.originalPath
+                dependencies = $dependencies; packageFile = 'regenerate.unitypackage'
+            })
+        } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $exportManifestPath -Encoding UTF8
+    } elseif ($PreExportedPath) {
         Set-JobStatus 'running' 'export' 25 'Using effects extracted by FindFX from the open Unity Editor...'
         $PreExportedPath = [IO.Path]::GetFullPath($PreExportedPath)
         if (-not (Test-Path -LiteralPath (Join-Path $PreExportedPath 'particle-package-manifest.json') -PathType Leaf)) {
@@ -479,7 +512,8 @@ try {
         return
     }
 
-    Set-JobStatus 'running' 'import' 50 "Exported $exportCount package(s). Importing assets into the preview container..." $exportCount
+    $importMessage = if ($RegenerateEffectId) { 'Importing the existing effect package into the temporary Unity workspace...' } else { "Exported $exportCount package(s). Importing assets into the preview container..." }
+    Set-JobStatus 'running' 'import' 50 $importMessage $exportCount
     $importArguments = @(
         '-batchmode', '-quit', '-accept-apiupdate',
         '-projectPath', ('"{0}"' -f $previewWorkspace),
@@ -517,11 +551,32 @@ try {
         throw "Preview capture count ($captureCount) did not match sanitized export count ($exportCount)."
     }
 
-    Set-JobStatus 'running' 'publish' 85 "Captured $captureCount preview(s). Publishing to the library..." $exportCount $captureCount
-    $published = Publish-Extraction $exportManifest $captureManifest
+    $publishMessage = if ($RegenerateEffectId) { 'Saving the regenerated GIF to this effect in the library...' } else { "Captured $captureCount preview(s). Publishing to the library..." }
+    Set-JobStatus 'running' 'publish' 85 $publishMessage $exportCount $captureCount
+    if ($RegenerateEffectId) {
+        $captures = @($captureManifest.captures)
+        if ($captures.Count -ne 1 -or -not $captures[0].thumbnail) { throw 'Regeneration did not produce exactly one preview.' }
+        $thumbnailName = $RegenerateEffectId + '-' + [Guid]::NewGuid().ToString('N') + '.gif'
+        $thumbnailFolder = Join-Path $LocalFolder 'thumbnails'
+        New-Item -ItemType Directory -Force -Path $thumbnailFolder | Out-Null
+        Copy-Item -LiteralPath (Join-Path $CapturePath $captures[0].thumbnail) -Destination (Join-Path $thumbnailFolder $thumbnailName)
+        # Update only the preview, preserving effect metadata and the exported package.
+        $manifestPath = Join-Path $LocalFolder 'manifest.json'
+        $library = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $effect = $library.effects | Where-Object { $_.id -eq $RegenerateEffectId } | Select-Object -First 1
+        if (-not $effect) { throw 'The effect was removed while its preview was regenerating.' }
+        $effect.files.thumbnail = 'thumbnails/' + $thumbnailName
+        $library.generatedAt = [DateTime]::UtcNow.ToString('o')
+        [IO.File]::WriteAllText($manifestPath + '.tmp', ($library | ConvertTo-Json -Depth 30), [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath ($manifestPath + '.tmp') -Destination $manifestPath -Force
+        $published = 1
+    } else {
+        $published = Publish-Extraction $exportManifest $captureManifest
+    }
     $warnings = @($exportManifest.warnings)
     foreach ($warning in $warnings) { Write-ExtractionLog "WARNING: $warning" }
-    Set-JobStatus 'complete' 'complete' 100 "Published $published effect package(s) to the gallery." $exportCount $captureCount $published $warnings
+    $completeMessage = if ($RegenerateEffectId) { 'Unity preview regenerated and saved to the library.' } else { "Published $published effect package(s) to the gallery." }
+    Set-JobStatus 'complete' 'complete' 100 $completeMessage $exportCount $captureCount $published $warnings
 } catch {
     $failure = $_
     $failedPhase = $currentPhase

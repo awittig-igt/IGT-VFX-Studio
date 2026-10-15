@@ -17,7 +17,7 @@ async function init() {
   }
   if (!manifest || !(manifest.effects || []).length) {
     try {
-      const response = await fetch('/local/manifest.json');
+      const response = await fetch('/local/manifest.json', { cache: 'no-store' });
       if (response.ok) {
         manifest = await response.json();
         if ((manifest.effects || []).length) currentAssetSource = 'local';
@@ -148,7 +148,7 @@ function fillFiles(e) {
         <span class="file-label">${esc(item.label)}</span>
         <span class="file-path" title="${escAttr(item.filename)}">${esc(item.filename)}</span>
         <div class="file-actions">
-          ${canSend ? `<button class="btn-secondary btn-sm" type="button" data-send-index="${index}" title="Import this package into the Unity preview project and generate thumbnails">Regenerate Unity Preview</button>` : ''}
+          ${canSend ? `<button class="btn-secondary btn-sm" type="button" data-send-index="${index}" title="Regenerate the Unity capture GIF without changing the effect package">Regenerate Unity Preview</button>` : ''}
           <button class="btn-secondary btn-sm" type="button" data-download-index="${index}">Download</button>
         </div>
       </li>`;
@@ -173,47 +173,9 @@ function fillFiles(e) {
   });
 
   list.querySelectorAll('[data-send-index]').forEach(button => {
-    button.addEventListener('click', async () => {
-      const item = items[Number(button.dataset.sendIndex)];
-      const oldText = button.textContent;
-      button.disabled = true;
-      button.textContent = 'Fetching…';
-      try {
-        const response = await _get(item.url, getConfig().token);
-        if (!response.ok) throw new Error(`Could not fetch package: ${response.status}`);
-        const blob = await response.blob();
-        button.textContent = 'Starting preview…';
-        const result = await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/api/upload-package');
-          xhr.setRequestHeader('X-Filename', encodeURIComponent(item.filename || 'effect.unitypackage'));
-          xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try { resolve(JSON.parse(xhr.responseText)); } catch { resolve({}); }
-            } else {
-              let msg = `Send failed (${xhr.status})`;
-              try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
-              reject(new Error(msg));
-            }
-          };
-          xhr.onerror = () => reject(new Error('Network error during upload'));
-          xhr.send(blob);
-        });
-        button.textContent = result?.warning ? 'Saved (preview unavailable)' : 'Preview job started';
-        await new Promise(r => setTimeout(r, 1500));
-      } catch (err) {
-        button.textContent = 'Preview request failed';
-        console.error('[effects-extractor] send to unity failed:', err);
-        await new Promise(r => setTimeout(r, 1400));
-      } finally {
-        button.disabled = false;
-        button.textContent = oldText;
-      }
-    });
+    button.addEventListener('click', () => regenerateUnityPreview(currentEffect, currentAssetSource));
   });
 }
-
 // ── Info tabs ─────────────────────────────────────────────────────────────
 function initTabs() {
   document.querySelectorAll('.info-tabs .tab-btn').forEach(btn => {
@@ -245,3 +207,13 @@ function showError(msg) {
 // ── Utility ───────────────────────────────────────────────────────────────
 function esc(s)     { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s) { return String(s ?? '').replace(/"/g,'&quot;'); }
+
+document.addEventListener('preview-regenerated', ({ detail: { effect } }) => {
+  if (currentAssetSource !== 'local' || currentEffect?.id !== effect.id) return;
+  currentEffect = effect;
+  const image = document.getElementById('preview-thumbnail');
+  image.classList.remove('hidden');
+  image.removeAttribute('data-load-error');
+  document.getElementById('preview-placeholder').classList.add('hidden');
+  image.src = getThumbnailURL(effect.files.thumbnail, 'local');
+});

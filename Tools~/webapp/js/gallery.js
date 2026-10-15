@@ -8,6 +8,66 @@ let previewOnly = false;
 let selectedEffectId = null;
 let galleryAssetSource = 'github';
 let assistantElements = null;
+let galleryPreviewObserver = null;
+
+function unloadCardPreview(card) {
+  const media = card.querySelector('.card-thumb img, .card-thumb canvas');
+  if (!media) return;
+  media.onerror = null;
+  if (media.tagName === 'IMG') media.removeAttribute('src');
+  else { media.width = 0; media.height = 0; }
+  media.remove();
+}
+
+function loadCardPreview(card, effect, source) {
+  const thumb = card.querySelector('.card-thumb');
+  if (!thumb || thumb.querySelector('img, canvas')) return;
+  const drawFallback = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 360;
+    canvas.className = 'thumb-canvas';
+    thumb.prepend(canvas);
+    drawProceduralThumb(canvas, effect);
+  };
+  if (!effect.files?.thumbnail) { drawFallback(); return; }
+  const img = document.createElement('img');
+  img.alt = effect.name || 'Effect preview';
+  img.decoding = 'async';
+  img.onerror = () => {
+    if (img.parentNode !== thumb) return;
+    img.remove();
+    drawFallback();
+  };
+  thumb.prepend(img);
+  img.src = getThumbnailURL(effect.files.thumbnail, source);
+}
+
+function clearGalleryPreviews(gallery) {
+  galleryPreviewObserver?.disconnect();
+  galleryPreviewObserver = null;
+  gallery.querySelectorAll('.effect-card').forEach(unloadCardPreview);
+}
+
+function observeGalleryPreviews(gallery, effects) {
+  const source = galleryAssetSource;
+  const cards = gallery.querySelectorAll('.effect-card');
+  if (typeof IntersectionObserver === 'undefined') {
+    cards.forEach((card, index) => loadCardPreview(card, effects[index], source));
+    return;
+  }
+  const effectByCard = new Map(Array.from(cards, (card, index) => [card, effects[index]]));
+  const observer = new IntersectionObserver(entries => {
+    // Ignore notifications queued before filtering or refreshing the gallery.
+    if (galleryPreviewObserver !== observer) return;
+    for (const entry of entries) {
+      if (entry.isIntersecting) loadCardPreview(entry.target, effectByCard.get(entry.target), source);
+      else unloadCardPreview(entry.target);
+    }
+  }, { rootMargin: '200px' });
+  galleryPreviewObserver = observer;
+  cards.forEach(card => observer.observe(card));
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -376,6 +436,7 @@ async function loadGallery() {
   setVisible(loading, true);
   setVisible(empty,   false);
   if (banner) banner.classList.add('hidden');
+  clearGalleryPreviews(gallery);
   gallery.innerHTML = '';
 
   const cfg = getConfig();
@@ -391,7 +452,7 @@ async function loadGallery() {
   // 2. Try local server folder (/local/manifest.json served by serve.ps1)
   if (!manifest || !(manifest.effects || []).length) {
     try {
-      const r = await fetch('/local/manifest.json');
+      const r = await fetch('/local/manifest.json', { cache: 'no-store' });
       if (r.ok) {
         const m = await r.json();
         if ((m.effects || []).length) { manifest = m; isLocal = true; }
@@ -437,6 +498,8 @@ function renderGallery() {
   const gallery = document.getElementById('gallery');
   const empty   = document.getElementById('empty-state');
   const filtered = filterEffects();
+
+  clearGalleryPreviews(gallery);
 
   document.getElementById('effect-count').textContent =
     `${filtered.length} effect${filtered.length !== 1 ? 's' : ''}`;
@@ -492,30 +555,7 @@ function renderGallery() {
     card.classList.toggle('selected', effect.id === selectedEffectId);
   });
 
-  // Render procedural thumbnails for cards without a real screenshot
-  gallery.querySelectorAll('canvas[data-effect-id]').forEach(canvas => {
-    canvas.width = 640;
-    canvas.height = 360;
-    const id  = canvas.dataset.effectId;
-    const eff = allEffects.find(e => e.id === id);
-    if (eff) drawProceduralThumb(canvas, eff);
-  });
-
-  // Lazy-load real thumbnails (replace canvas if a real image exists)
-  gallery.querySelectorAll('img[data-src]').forEach(img => {
-    img.src = img.dataset.src;
-    img.onerror = () => {
-      // Real thumbnail missing — swap back to procedural canvas
-      const id  = img.dataset.effectId;
-      const eff = allEffects.find(e => e.id === id);
-      const canvas = document.createElement('canvas');
-      canvas.width  = 640;
-      canvas.height = 360;
-      canvas.className = 'thumb-canvas';
-      img.replaceWith(canvas);
-      if (eff) drawProceduralThumb(canvas, eff);
-    };
-  });
+  observeGalleryPreviews(gallery, filtered);
 
   const selected = filtered.find(effect => effect.id === selectedEffectId) || filtered[0];
   if (selected) showSidePreview(selected);
@@ -539,22 +579,16 @@ function filterEffects() {
 
 // ── Card HTML ─────────────────────────────────────────────────────────────
 function effectCard(e) {
-  const thumb = e.files?.thumbnail ? getThumbnailURL(e.files.thumbnail, galleryAssetSource) : null;
   const tags  = (e.tags || []).slice(0, 3).map(t => `<span class="tag">${esc(t)}</span>`).join('');
   const primaryDownload = getEffectDownloadItems(e, galleryAssetSource)[0];
   const canDelete = galleryAssetSource === 'local';
 
-  // Prefer a real screenshot; fall back to procedural canvas thumb
-  const thumbHtml = thumb
-    ? `<img data-src="${escAttr(thumb)}" data-type="${esc(e.type)}" data-effect-id="${esc(e.id)}" alt="${escAttr(e.name)}">`
-    : `<canvas width="200" height="125" class="thumb-canvas" data-effect-id="${esc(e.id)}"></canvas>`;
-
   return `
-    <div class="effect-card" tabindex="0" role="button"
+    <div class="effect-card" data-effect-id="${escAttr(esc(e.id))}" tabindex="0" role="button"
          onclick="openViewer('${esc(e.id)}')"
          onkeydown="if(event.key==='Enter')openViewer('${esc(e.id)}')">
       <div class="card-thumb">
-        ${thumbHtml}
+
         ${primaryDownload ? `<button type="button" class="card-download" title="${primaryDownload.kind === 'package' ? 'Download Unity package' : 'Download file'}" aria-label="Download ${escAttr(e.name)}">↓</button>` : ''}
         ${canDelete ? `<button type="button" class="card-delete" title="Delete effect" aria-label="Delete ${escAttr(e.name)}">×</button>` : ''}
         <span class="card-type-badge type-${e.type}">${esc(e.type)}</span>
@@ -604,14 +638,14 @@ function showSidePreview(effect) {
   setVisible(sendUnityButton, Boolean(packageDownload));
   downloadButton.textContent = sourceDownload?.kind === 'package' ? 'Download Unity Package' : 'Download file';
   downloadButton.onclick = () => runDownload(downloadButton, sourceDownload);
-  sendUnityButton.onclick = () => runSendToUnity(sendUnityButton, packageDownload);
+  sendUnityButton.onclick = () => regenerateUnityPreview(effect, galleryAssetSource);
   document.dispatchEvent(new CustomEvent('effect-ready', { detail: { effect, source: galleryAssetSource } }));
 
   document.getElementById('side-preview-open').onclick = () => openViewer(effect.id);
   document.querySelectorAll('.effect-card').forEach(card => card.classList.remove('selected'));
   const selectedCard = Array.from(document.querySelectorAll('.effect-card')).find(card => {
-    const preview = card.querySelector('[data-effect-id]');
-    return preview && preview.dataset.effectId === effect.id;
+
+    return card.dataset.effectId === String(effect.id);
   });
   selectedCard?.classList.add('selected');
 }
@@ -631,49 +665,6 @@ async function runDownload(button, item) {
     button.textContent = 'Download failed';
     console.error('[effects-extractor] download failed:', error);
     await new Promise(resolve => setTimeout(resolve, 1400));
-  } finally {
-    button.disabled = false;
-    button.textContent = oldText;
-  }
-}
-
-async function runSendToUnity(button, packageItem) {
-  if (!packageItem?.url) {
-    window.alert('No Unity package is available for this effect.');
-    return;
-  }
-  const oldText = button.textContent;
-  button.disabled = true;
-  button.textContent = 'Fetching…';
-  try {
-    const response = await _get(packageItem.url, getConfig().token);
-    if (!response.ok) throw new Error(`Could not fetch package: ${response.status}`);
-    const blob = await response.blob();
-    const filename = packageItem.filename || 'effect.unitypackage';
-    button.textContent = 'Starting preview…';
-    const result = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/upload-package');
-      xhr.setRequestHeader('X-Filename', encodeURIComponent(filename));
-      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try { resolve(JSON.parse(xhr.responseText)); } catch { resolve({}); }
-        } else {
-          let msg = `Send failed (${xhr.status})`;
-          try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
-          reject(new Error(msg));
-        }
-      };
-      xhr.onerror = () => reject(new Error('Network error during upload'));
-      xhr.send(blob);
-    });
-    button.textContent = result?.warning ? 'Saved (preview unavailable)' : 'Preview job started';
-    await new Promise(r => setTimeout(r, 1500));
-  } catch (err) {
-    button.textContent = 'Preview request failed';
-    console.error('[effects-extractor] send to unity failed:', err);
-    await new Promise(r => setTimeout(r, 1400));
   } finally {
     button.disabled = false;
     button.textContent = oldText;
@@ -844,3 +835,9 @@ function typeIcon(t) {
 function esc(s)     { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s) { return String(s ?? '').replace(/"/g,'&quot;'); }
 function setVisible(el, v) { el?.classList.toggle('hidden', !v); }
+
+document.addEventListener('preview-regenerated', ({ detail: { effect } }) => {
+  if (galleryAssetSource !== 'local') return;
+  allEffects = allEffects.map(item => item.id === effect.id ? effect : item);
+  renderGallery();
+});

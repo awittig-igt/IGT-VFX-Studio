@@ -459,8 +459,8 @@ main {
   box-shadow: 0 0 0 1px var(--accent), 0 8px 24px rgba(0,0,0,.4);
 }
 .effect-card:not(.selected):hover {
-  border-color: var(--accent-light);
-  box-shadow: 0 0 0 1px var(--accent-light), 0 8px 24px rgba(0,0,0,.4);
+  border-color: rgba(167,139,250,.25);
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
 }
 .effect-card:focus-visible {
   outline: 2px solid var(--accent);
@@ -1651,6 +1651,24 @@ main {
   height: 100%;
   border: 0;
 }
+
+.preview-job-status {
+  position: fixed;
+  z-index: 100;
+  right: 16px;
+  bottom: 16px;
+  width: min(480px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--bg2);
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+}
+.preview-job-status[hidden] { display: none; }
+.preview-job-status p { margin: 8px 0; overflow-wrap: anywhere; }
+.preview-job-status progress { display: block; width: 100%; margin-bottom: 12px; accent-color: var(--accent); }
+.preview-job-status a { color: var(--accent-light); margin-right: 16px; }
+.preview-job-status.failed { border-color: #f87171; }
 
 .publish-dialog {
   position: fixed;
