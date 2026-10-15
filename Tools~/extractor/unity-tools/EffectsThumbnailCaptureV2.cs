@@ -209,6 +209,8 @@ namespace EffectsExtractor.Editor
                         instance.transform.position = Vector3.zero;
                         instance.transform.rotation = Quaternion.identity;
                         SetActiveRecursively(instance.transform);
+                        var originalMetadata = selection.effectType == "particle" ? ReadMetadata(instance) : null;
+                        ApplyParticlePreviewOverrides(instance);
                         if (selection.effectType == "particle") SimulateParticles(instance);
                         if (selection.effectType == "vfx") await SimulateVfx(instance, camera);
                         FrameCamera(camera, instance);
@@ -250,7 +252,7 @@ namespace EffectsExtractor.Editor
                             thumbnail = fileName + ".gif",
                             frames = fileName + "-frames",
                             effectType = selection.effectType,
-                            metadata = selection.effectType == "particle" ? ReadMetadata(instance) : null
+                            metadata = originalMetadata
                         });
                     }
                     finally
@@ -392,6 +394,23 @@ namespace EffectsExtractor.Editor
             root.gameObject.SetActive(true);
             for (var index = 0; index < root.childCount; index++)
                 SetActiveRecursively(root.GetChild(index));
+        }
+
+        private static void ApplyParticlePreviewOverrides(GameObject instance)
+        {
+            // Change only the disposable scene instance, never the prefab asset or
+            // exported package. Continuous emission also previews effects normally
+            // driven by movement, scripts, or delayed bursts in the source game.
+            foreach (var system in instance.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                var main = system.main;
+                main.startDelay = 0f;
+
+                var emission = system.emission;
+                emission.enabled = true;
+                emission.rateOverTime = new ParticleSystem.MinMaxCurve(
+                    Mathf.Max(10f, emission.rateOverTime.constantMax));
+            }
         }
 
         private static void SimulateParticles(GameObject instance)
