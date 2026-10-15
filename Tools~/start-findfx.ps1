@@ -52,7 +52,7 @@ try {
             $config = $null
         }
 
-        if ($config -and $config.capabilities.findFX -and $config.capabilities.multiEffectPackages -and $config.capabilities.packageCacheRecovery -and
+        if ($config -and $config.capabilities.animatedGifPreviews -and $config.capabilities.findFX -and $config.capabilities.multiEffectPackages -and $config.capabilities.packageCacheRecovery -and
             ([IO.Path]::GetFullPath([string]$config.localFolder).TrimEnd('\') -eq $LocalFolder.TrimEnd('\'))) {
             $reusingExistingServer = $true
             Write-Host "Reusing existing FindFX server on port $Port."
@@ -77,7 +77,7 @@ try {
                 try {
                     $tryUrl = "http://localhost:$tryPort"
                     $tryConfig = Invoke-RestMethod "$tryUrl/api/config" -TimeoutSec 2
-                    if ($tryConfig -and $tryConfig.capabilities.findFX -and $tryConfig.capabilities.multiEffectPackages -and $tryConfig.capabilities.packageCacheRecovery -and
+                    if ($tryConfig -and $tryConfig.capabilities.animatedGifPreviews -and $tryConfig.capabilities.findFX -and $tryConfig.capabilities.multiEffectPackages -and $tryConfig.capabilities.packageCacheRecovery -and
                         ([IO.Path]::GetFullPath([string]$tryConfig.localFolder).TrimEnd('\') -eq $LocalFolder.TrimEnd('\'))) {
                         $Port = $tryPort
                         $baseUrl = $tryUrl

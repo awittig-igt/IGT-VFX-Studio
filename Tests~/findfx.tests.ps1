@@ -51,6 +51,16 @@ try {
         '-batchmode', '-quit', '-nographics', '-projectPath', ('"{0}"' -f $source),
         '-executeMethod', 'FindFXIntegration.Run', '-logFile', ('"{0}"' -f $log)
     )
+    for ($attempt = 1; $attempt -le 3 -and $process.ExitCode -ne 0 -and
+        (Select-String -LiteralPath $log -Pattern 'EPERM.*rename' -Quiet); $attempt++) {
+        $process.Dispose()
+        Copy-Item -LiteralPath $log -Destination "$log.attempt$attempt.log"
+        Start-Sleep -Seconds ([Math]::Pow(2, $attempt))
+        $process = Invoke-UnityEditorProcess -EditorPath $editor.selectedPath -Arguments @(
+            '-batchmode', '-quit', '-nographics', '-projectPath', ('"{0}"' -f $source),
+            '-executeMethod', 'FindFXIntegration.Run', '-logFile', ('"{0}"' -f $log)
+        )
+    }
     if ($process.ExitCode -ne 0 -or -not (Select-String -LiteralPath $log -Pattern 'FINDFX_TESTS_PASSED' -Quiet)) {
         throw "Unity FindFX tests failed (exit $($process.ExitCode)). See $log"
     }
@@ -118,6 +128,26 @@ try {
     foreach ($effect in $manifest.effects) {
         $image = [Drawing.Bitmap]::new((Join-Path $library $effect.files.thumbnail))
         try {
+            if ([IO.Path]::GetExtension($effect.files.thumbnail) -ne '.gif' -or
+                $image.GetFrameCount([Drawing.Imaging.FrameDimension]::Time) -ne 72) {
+                throw 'Preview must be an animated GIF with 72 frames.'
+            }
+            $delays = $image.GetPropertyItem(0x5100).Value
+            $duration = 0
+            for ($index = 0; $index -lt 72; $index++) {
+                $delay = [BitConverter]::ToUInt32($delays, $index * 4)
+                if ($delay -notin @(4, 5)) { throw "Unexpected GIF frame delay: $delay" }
+                $duration += $delay
+            }
+            if ($duration -ne 300) { throw "GIF duration must be 3 seconds, got $duration centiseconds." }
+            if ($effect.name -eq 'FindFXTestParticle' -and $effect.type -eq 'shader') {
+                $image.SelectActiveFrame([Drawing.Imaging.FrameDimension]::Time, 0) | Out-Null
+                $early = $image.GetPixel(320, 180).R
+                $image.SelectActiveFrame([Drawing.Imaging.FrameDimension]::Time, 48) | Out-Null
+                $late = $image.GetPixel(320, 180).R
+                if ($late - $early -lt 50) { throw "Shader time did not advance with the capture clock: $early -> $late." }
+            }
+            $image.SelectActiveFrame([Drawing.Imaging.FrameDimension]::Time, 18) | Out-Null
             if ($image.Width -ne 640 -or $image.Height -ne 360) {
                 throw 'Preview dimensions must be 640 x 360.'
             }

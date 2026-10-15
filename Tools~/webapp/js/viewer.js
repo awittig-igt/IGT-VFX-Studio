@@ -251,7 +251,8 @@ function initPreviewTabs(e) {
   const loading  = document.getElementById('preview-loading');
   const resetCamera = document.getElementById('btn-reset-cam');
   const sourceBadge = document.getElementById('preview-source-badge');
-  const supportsLive = e.type === 'particle' || (e.type === 'shader' && Boolean(e.files?.main));
+  const animatedCapture = /\.gif(?:[?#]|$)/i.test(e.files?.thumbnail || '');
+  const supportsLive = !animatedCapture && (e.type === 'particle' || (e.type === 'shader' && Boolean(e.files?.main)));
   const hasCapture = Boolean(e.files?.thumbnail);
 
   if (!supportsLive) {

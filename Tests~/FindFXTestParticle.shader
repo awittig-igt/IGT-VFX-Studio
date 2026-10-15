@@ -35,7 +35,8 @@ Shader "FindFXTests/Particle"
 
             fixed4 Frag(Interpolators input) : SV_Target
             {
-                return input.color;
+                // A predictable time ramp also verifies the offline shader clock.
+                return input.color * fixed4(0.2 + 0.8 * saturate(_Time.y / 3.0), 0.6, 0.2, 1.0);
             }
             ENDCG
         }

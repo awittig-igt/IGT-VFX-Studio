@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
+using UnityEngine.Rendering.Universal;
 
 namespace EffectsExtractor.Editor
 {
@@ -17,6 +20,9 @@ namespace EffectsExtractor.Editor
     {
         private const int Width = 640;
         private const int Height = 360;
+        private const int FrameCount = 72;
+        private const float FrameStep = 1f / 24f;
+        private static float captureTime;
         private const string GeneratedPrefabFolder = "Assets/EffectsExtractor/ParticlePackages";
 
         [Serializable]
@@ -48,6 +54,7 @@ namespace EffectsExtractor.Editor
             public string name;
             public string assetPath;
             public string thumbnail;
+            public string frames;
             public string effectType = "particle";
             public ParticleMetadata metadata;
         }
@@ -175,6 +182,7 @@ namespace EffectsExtractor.Editor
             light.type = LightType.Directional;
             light.intensity = 1.2f;
             lightObject.transform.rotation = Quaternion.Euler(35f, -30f, 0f);
+            var timeFeatures = InstallCaptureClock();
 
             try
             {
@@ -204,16 +212,43 @@ namespace EffectsExtractor.Editor
                         if (selection.effectType == "particle") SimulateParticles(instance);
                         if (selection.effectType == "vfx") await SimulateVfx(instance, camera);
                         FrameCamera(camera, instance);
-                        camera.Render();
-
                         var fileName = MakeSafeFileName(selection.name) + "-" +
-                            GetAssetSuffix(selection.captureAssetPath) + ".png";
-                        SaveCapture(renderTexture, Path.Combine(output, fileName));
+                            GetAssetSuffix(selection.captureAssetPath);
+                        var frameFolder = Path.Combine(output, fileName + "-frames");
+                        Directory.CreateDirectory(frameFolder);
+                        // Measure the entire clip before recording, then replay the same
+                        // seeded simulation with one fixed camera for every saved frame.
+                        var clipBounds = new Bounds();
+                        var hasClipBounds = false;
+                        for (var pass = 0; pass < 2; pass++)
+                        {
+                            ResetSimulation(instance);
+                            for (var frame = 0; frame < FrameCount; frame++)
+                            {
+                                StepSimulation(instance);
+                                captureTime = (frame + 1) * FrameStep;
+                                camera.Render();
+                                if (selection.effectType == "vfx") await NextEditorFrame();
+                                if (pass == 0)
+                                {
+                                    foreach (var renderer in instance.GetComponentsInChildren<Renderer>(true))
+                                    {
+                                        var bounds = renderer.bounds;
+                                        if (!renderer.enabled || !IsFinite(bounds.center) || !IsFinite(bounds.size)) continue;
+                                        if (!hasClipBounds) { clipBounds = bounds; hasClipBounds = true; }
+                                        else clipBounds.Encapsulate(bounds);
+                                    }
+                                }
+                                else SaveCapture(renderTexture, Path.Combine(frameFolder, frame.ToString("D3") + ".png"));
+                            }
+                            if (pass == 0 && hasClipBounds) FrameBounds(camera, clipBounds);
+                        }
                         captureManifest.captures.Add(new CaptureEntry
                         {
                             name = selection.name,
                             assetPath = selection.captureAssetPath,
-                            thumbnail = fileName,
+                            thumbnail = fileName + ".gif",
+                            frames = fileName + "-frames",
                             effectType = selection.effectType,
                             metadata = selection.effectType == "particle" ? ReadMetadata(instance) : null
                         });
@@ -226,6 +261,12 @@ namespace EffectsExtractor.Editor
             }
             finally
             {
+                foreach (var entry in timeFeatures)
+                {
+                    entry.Key.rendererFeatures.Remove(entry.Value);
+                    entry.Key.SetDirty();
+                    UnityEngine.Object.DestroyImmediate(entry.Value);
+                }
                 camera.targetTexture = null;
                 UnityEngine.Object.DestroyImmediate(cameraObject);
                 UnityEngine.Object.DestroyImmediate(lightObject);
@@ -299,6 +340,9 @@ namespace EffectsExtractor.Editor
                     throw new InvalidOperationException("VFX Graph asset was not imported.");
                 type.GetMethod("Reinit").Invoke(effect, null);
                 type.GetMethod("Play", Type.EmptyTypes).Invoke(effect, null);
+                type.GetProperty("pause").SetValue(effect, true);
+                type.GetProperty("resetSeedOnPlay").SetValue(effect, false);
+                type.GetProperty("startSeed").SetValue(effect, 1u);
             }
             FrameCamera(camera, instance);
             camera.enabled = true;
@@ -318,7 +362,7 @@ namespace EffectsExtractor.Editor
             for (var frame = 0; frame < 45; frame++)
             {
                 foreach (var effect in effects)
-                    effect.GetType().GetMethod("Simulate").Invoke(effect, new object[] { 1f / 30f, 1u });
+                    effect.GetType().GetMethod("Simulate").Invoke(effect, new object[] { FrameStep, 1u });
                 camera.Render();
                 await NextEditorFrame();
                 await Task.Delay(16);
@@ -366,11 +410,11 @@ namespace EffectsExtractor.Editor
                 particleSystem.Clear(false);
             }
 
-            const float step = 1f / 30f;
+            const float step = FrameStep;
             for (var elapsed = 0f; elapsed < targetTime; elapsed += step)
             {
                 foreach (var particleSystem in systems)
-                    particleSystem.Simulate(step, false, false, true);
+                    particleSystem.Simulate(step, false, false, false);
             }
         }
 
@@ -401,6 +445,40 @@ namespace EffectsExtractor.Editor
             if (!hasBounds || bounds.extents.sqrMagnitude < 0.0001f)
                 bounds = new Bounds(Vector3.zero, Vector3.one * 2f);
 
+            FrameBounds(camera, bounds);
+        }
+
+        private static void ResetSimulation(GameObject instance)
+        {
+            foreach (var system in instance.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                system.useAutoRandomSeed = false;
+                system.randomSeed = 1u;
+                system.Stop(false, ParticleSystemStopBehavior.StopEmittingAndClear);
+                system.Simulate(0f, false, true, false);
+                system.Pause(false);
+            }
+            foreach (var effect in instance.GetComponentsInChildren<Component>(true).Where(IsVisualEffect))
+            {
+                var type = effect.GetType();
+                type.GetProperty("startSeed").SetValue(effect, 1u);
+                type.GetProperty("resetSeedOnPlay").SetValue(effect, false);
+                type.GetMethod("Reinit").Invoke(effect, null);
+                type.GetMethod("Play", Type.EmptyTypes).Invoke(effect, null);
+                type.GetProperty("pause").SetValue(effect, true);
+            }
+        }
+
+        private static void StepSimulation(GameObject instance)
+        {
+            foreach (var system in instance.GetComponentsInChildren<ParticleSystem>(true))
+                system.Simulate(FrameStep, false, false, false);
+            foreach (var effect in instance.GetComponentsInChildren<Component>(true).Where(IsVisualEffect))
+                effect.GetType().GetMethod("Simulate").Invoke(effect, new object[] { FrameStep, 1u });
+        }
+
+        private static void FrameBounds(Camera camera, Bounds bounds)
+        {
             var radius = Mathf.Clamp(bounds.extents.magnitude, 0.5f, 50f);
             var distance = radius / Mathf.Tan(camera.fieldOfView * 0.5f * Mathf.Deg2Rad);
             distance = Mathf.Clamp(distance * 1.35f, 1.5f, 150f);
@@ -409,6 +487,73 @@ namespace EffectsExtractor.Editor
             camera.transform.LookAt(bounds.center);
             camera.nearClipPlane = Mathf.Max(0.01f, distance - radius * 2.5f);
             camera.farClipPlane = distance + radius * 3.5f;
+        }
+
+        // URP replaces shader time globals during camera setup. Override them in
+        // a render pass so Shader Graph / _Time animation uses the capture clock.
+        private static Dictionary<ScriptableRendererData, CaptureClockFeature> InstallCaptureClock()
+        {
+            var result = new Dictionary<ScriptableRendererData, CaptureClockFeature>();
+            var pipeline = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+            if (pipeline == null) throw new InvalidOperationException("Animated capture requires the bundled URP preview template.");
+            var serialized = new SerializedObject(pipeline);
+            var renderers = serialized.FindProperty("m_RendererDataList");
+            for (var i = 0; i < renderers.arraySize; i++)
+            {
+                var data = renderers.GetArrayElementAtIndex(i).objectReferenceValue as ScriptableRendererData;
+                if (data == null || result.ContainsKey(data)) continue;
+                var feature = ScriptableObject.CreateInstance<CaptureClockFeature>();
+                feature.hideFlags = HideFlags.HideAndDontSave;
+                feature.Create();
+                data.rendererFeatures.Add(feature);
+                data.SetDirty();
+                result.Add(data, feature);
+            }
+            return result;
+        }
+
+        private sealed class CaptureClockFeature : ScriptableRendererFeature
+        {
+            private CaptureClockPass pass;
+            public override void Create() { pass = new CaptureClockPass(); }
+            public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData data)
+            {
+                renderer.EnqueuePass(pass);
+            }
+        }
+
+        private sealed class CaptureClockPass : ScriptableRenderPass
+        {
+            private sealed class PassData { public float time; }
+            public CaptureClockPass() { renderPassEvent = RenderPassEvent.BeforeRenderingPrePasses; }
+            public override void RecordRenderGraph(RenderGraph graph, ContextContainer frameData)
+            {
+                using (var builder = graph.AddRasterRenderPass<PassData>("FindFX fixed capture clock", out var data))
+                {
+                    data.time = captureTime;
+                    builder.AllowGlobalStateModification(true);
+                    builder.AllowPassCulling(false);
+                    builder.SetRenderFunc((PassData clock, RasterGraphContext context) => SetClock(context.cmd, clock.time));
+                }
+            }
+            [Obsolete("Compatibility mode only")]
+            public override void Execute(ScriptableRenderContext context, ref RenderingData data)
+            {
+                var cmd = CommandBufferPool.Get();
+                SetClock(CommandBufferHelpers.GetRasterCommandBuffer(cmd), captureTime);
+                context.ExecuteCommandBuffer(cmd);
+                CommandBufferPool.Release(cmd);
+            }
+            private static void SetClock(RasterCommandBuffer cmd, float time)
+            {
+                cmd.SetGlobalVector("_Time", new Vector4(time / 20f, time, time * 2f, time * 3f));
+                cmd.SetGlobalVector("_SinTime", new Vector4(Mathf.Sin(time / 8f), Mathf.Sin(time / 4f), Mathf.Sin(time / 2f), Mathf.Sin(time)));
+                cmd.SetGlobalVector("_CosTime", new Vector4(Mathf.Cos(time / 8f), Mathf.Cos(time / 4f), Mathf.Cos(time / 2f), Mathf.Cos(time)));
+                cmd.SetGlobalVector("unity_DeltaTime", new Vector4(FrameStep, 24f, FrameStep, 24f));
+                cmd.SetGlobalVector("_TimeParameters", new Vector4(time, Mathf.Sin(time), Mathf.Cos(time), 0f));
+                var last = time - FrameStep;
+                cmd.SetGlobalVector("_LastTimeParameters", new Vector4(last, Mathf.Sin(last), Mathf.Cos(last), 0f));
+            }
         }
 
         private static bool IsFinite(Vector3 value)

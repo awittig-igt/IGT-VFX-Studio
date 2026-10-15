@@ -276,7 +276,7 @@ function Publish-Extraction {
         if ($capture -and $capture.thumbnail) {
             $captureSource = Join-Path $CapturePath $capture.thumbnail
             if (Test-Path -LiteralPath $captureSource -PathType Leaf) {
-                $thumbnailName = "$id.png"
+                $thumbnailName = "$id.gif"
                 Copy-Item -LiteralPath $captureSource -Destination (Join-Path $thumbnailsFolder $thumbnailName) -Force
                 $thumbnailRelative = "thumbnails/$thumbnailName"
             }
@@ -492,6 +492,9 @@ try {
     if ($captureProcess.ExitCode -ne 0) {
         throw "Unity preview capture failed (exit $($captureProcess.ExitCode)). $(Get-LogTail $captureLog)"
     }
+    Set-JobStatus 'running' 'encode' 80 'Encoding 3-second animated GIF previews...' $exportCount
+    . (Join-Path $PSScriptRoot 'encode-previews.ps1')
+    ConvertTo-GifPreviews -CapturePath $CapturePath
     $captureManifestPath = Join-Path $CapturePath 'capture-manifest.json'
     if (-not (Test-Path -LiteralPath $captureManifestPath -PathType Leaf)) {
         throw 'Unity completed without creating a capture manifest.'

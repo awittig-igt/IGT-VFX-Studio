@@ -523,6 +523,7 @@ try {
                         sanitizedParticlePackages = $true
                         multiEffectPackages = $true
                         packageCacheRecovery = $true
+                        animatedGifPreviews = $true
                         disposablePreviewWorkspace = $true
                     }
                     localFolder = $LocalFolder
@@ -597,6 +598,7 @@ try {
                         sanitizedParticlePackages = $true
                         multiEffectPackages = $true
                         packageCacheRecovery = $true
+                        animatedGifPreviews = $true
                         disposablePreviewWorkspace = $true
                     }
                     localFolder = $LocalFolder
@@ -916,7 +918,7 @@ try {
             elseif ($method -eq 'GET' -and $rawPath -eq '/api/captures') {
                 $capDir = if ($UnityProjectPath) { Join-Path (Split-Path $UnityProjectPath -Parent) 'ThumbnailCaptures' } else { Join-Path $LocalFolder 'ThumbnailCaptures' }
                 if (Test-Path $capDir) {
-                    $files = (Get-ChildItem $capDir -Filter '*.png').Name
+                    $files = (Get-ChildItem $capDir -File | Where-Object { $_.Extension -in @('.gif', '.png') }).Name
                     Send-Json $res @{ ok = $true; folder = $capDir; count = @($files).Count; files = @($files) }
                 } else {
                     Send-Json $res @{ ok = $false; folder = $capDir; count = 0; files = @() }
@@ -980,7 +982,7 @@ try {
                     $thumbDir = Join-Path $LocalFolder 'thumbnails'
                     if (-not (Test-Path $thumbDir)) { New-Item -ItemType Directory -Force -Path $thumbDir | Out-Null }
                     $imported = 0; $skipped = 0
-                    foreach ($png in (Get-ChildItem $capDir -Filter '*.png')) {
+                    foreach ($png in (Get-ChildItem $capDir -File | Where-Object { $_.Extension -in @('.gif', '.png') } | Sort-Object Extension -Descending)) {
                         $stem   = [IO.Path]::GetFileNameWithoutExtension($png.Name)
                         $effect = $null
                         $capture = $captureEntries | Where-Object { $_.thumbnail -ieq $png.Name } | Select-Object -First 1
@@ -1023,7 +1025,7 @@ try {
                             $effect.extractedAt = [DateTime]::UtcNow.ToString('o')
                         }
                         if ($effect) {
-                            $destName = $effect.id + '.png'
+                            $destName = $effect.id + $png.Extension
                             Copy-Item $png.FullName (Join-Path $thumbDir $destName) -Force
                             $effect.files.thumbnail = "thumbnails/$destName"
                             $imported++
