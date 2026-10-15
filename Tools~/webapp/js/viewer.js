@@ -44,7 +44,7 @@ async function init() {
 
 // ── Render effect ─────────────────────────────────────────────────────────
 function render(e) {
-  document.title = `${e.name} — Effects Extractor Library`;
+  document.title = `${e.name} — FindFX Library`;
   document.getElementById('effect-title').textContent = e.name;
 
   const badgeType = document.getElementById('badge-type');

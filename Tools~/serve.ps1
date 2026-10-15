@@ -273,7 +273,7 @@ if (-not $testStart) {
 }
 
 Write-Host ""
-Write-Host "  Effects Extractor Library :  $baseUrl" -ForegroundColor Green
+Write-Host "  FindFX Library :  $baseUrl" -ForegroundColor Green
 Write-Host "  Local effects    :  $LocalFolder" -ForegroundColor Cyan
 if ($SourceProjectPath) { Write-Host "  Game project     :  $SourceProjectPath" -ForegroundColor Cyan }
 if ($PreviewProjectPath) { Write-Host "  Preview project  :  $PreviewProjectPath" -ForegroundColor Cyan }
